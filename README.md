@@ -1,0 +1,38 @@
+# XPollination Best Practices
+
+Central knowledge hub for design patterns, standards, and best practices shared across all XPollination agents and projects.
+
+## Structure
+
+```
+best-practices/
+├── layout/               # Document layout patterns
+│   ├── page-break-patterns.md
+│   ├── spacing-system.md
+│   └── cv-design-dach.md
+└── README.md
+```
+
+## Purpose
+
+This repository serves as the **single source of truth** for best practices that apply across projects. All agents read from here and contribute findings from their work.
+
+### How Agents Use This Repo
+1. **Before starting work:** Check relevant best practice documents for established patterns
+2. **During work:** Apply documented patterns consistently
+3. **After completing work:** Contribute new patterns or refine existing ones based on findings
+
+## Topics
+
+| Topic | Path | Description |
+|-------|------|-------------|
+| Layout | [`layout/`](layout/) | Page breaks, spacing, typography, CV design |
+
+## Contributing
+
+When contributing new best practices:
+1. Create a topic directory if it doesn't exist
+2. Write a markdown document with: pattern names, definitions, thresholds, implementation examples
+3. Add a README.md to the topic directory linking to all documents
+4. Update this top-level README
+5. Follow git protocol: specific file staging, atomic commits, immediate push
