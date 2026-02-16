@@ -2,7 +2,7 @@
 
 > Best practices for vertical and horizontal spacing in CVs, reports, and professional documents.
 > Source: Typography research, DACH CV standards, visual design principles.
-> Version: 1.0.0 | Last updated: 2026-02-14
+> Version: 1.1.0 | Last updated: 2026-02-16
 
 ---
 
@@ -14,7 +14,7 @@ Use a consistent, named spacing system — like a musical scale for whitespace. 
 
 | Tier | Name | Value | Purpose |
 |------|------|-------|---------|
-| XS | `sp-xs` | 3pt | Between bullet items, micro gaps |
+| XS | `sp-xs` | 5pt | Between bullet items |
 | Tight | `sp-tight` | 6pt | Title to first bullet, within-entry gaps |
 | Medium | `sp-medium` | 14pt | Between entries (the key visual separator) |
 | Large | `sp-large` | 22pt | Between sections |
@@ -22,7 +22,7 @@ Use a consistent, named spacing system — like a musical scale for whitespace. 
 
 ### Why These Values?
 
-- **3pt (xs):** Just enough to distinguish separate bullet lines without adding visual weight
+- **5pt (xs):** Clear separation between bullet items. Professional standard is 5-6pt. Below 4pt, multi-line bullets blur into each other visually
 - **6pt (tight):** Creates a subtle pause between the entry header and its bullet content
 - **14pt (medium):** Research shows ~5mm (14pt) is where entries are perceived as distinct visual blocks. Below 12pt, entries feel cramped. Above 16pt, spacing feels wasteful on A4.
 - **22pt (large):** Section transitions need to signal a major topic change. 22pt (~8mm) provides clear separation without a full blank line
@@ -67,17 +67,27 @@ This creates a visual hierarchy where the eye can distinguish levels of grouping
 
 ## Line Height (Leading)
 
+### Font-Specific: Inter
+
+Inter has a **large x-height** designed for screen readability. In print, this makes lines appear denser than typical sans-serifs at the same point size. Inter's designer (Rasmus Andersson) recommends **1.4x line-height** as the baseline.
+
+**In Typst:** `par(leading)` is the space between lines, not total line-height. Typst default is 0.65em. For Inter at 9-9.5pt, the optimal range is:
+
 | Context | Recommended | Rationale |
 |---------|-------------|-----------|
-| Body text | 0.72em | Standard readability for 9-9.5pt text |
-| Profile/summary | 0.78em | Extra breathing room for dense paragraphs |
-| Bullet items | 0.72em (inherited) | Consistent with body |
+| Body text / bullets | 0.80em | Inter needs more leading than standard sans-serifs due to large x-height |
+| Profile/summary | 0.85em | Extra breathing room for dense paragraphs |
 | Headings | Typst default | Headings are typically single-line |
 
-### Rules
+### General Rules (any font)
 - Never go below 0.6em — text becomes hard to read
-- Never go above 0.85em — text feels disconnected
-- Profile/summary paragraphs benefit from +0.06em over body text
+- Never go above 0.90em — text feels disconnected
+- Large x-height fonts (Inter, Helvetica) need ~10-15% more leading than small x-height fonts (Garamond, Caslon)
+- Profile/summary paragraphs benefit from +0.05em over body text
+- At font sizes below 10pt, proportionally more leading is needed for readability
+
+### Previous values (deprecated)
+- 0.72em was used in template v2.2.0–v2.4.0 and found too tight for multi-line bullet text in Inter at 9pt
 
 ---
 
@@ -121,7 +131,7 @@ This creates a visual hierarchy where the eye can distinguish levels of grouping
 
 ```typst
 // Named spacing variables — all spacing comes from here
-#let sp-xs = 3pt
+#let sp-xs = 5pt
 #let sp-tight = 6pt
 #let sp-medium = 14pt
 #let sp-large = 22pt
@@ -130,7 +140,7 @@ This creates a visual hierarchy where the eye can distinguish levels of grouping
 // Page setup
 #set page(paper: "a4", margin: 20mm)
 #set text(font: "Inter", size: 9.5pt)
-#set par(leading: 0.72em)
+#set par(leading: 0.80em)
 
 // Section: sp-large above, sp-section-below before first entry
 #let section(title, body) = {
