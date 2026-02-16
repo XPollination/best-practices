@@ -9,7 +9,10 @@ best-practices/
 ├── layout/               # Document layout patterns
 │   ├── page-break-patterns.md
 │   ├── spacing-system.md
+│   ├── bold-usage.md
 │   └── cv-design-dach.md
+├── cv-content/           # CV content strategy & recruiter optimization
+│   └── recruiter-screening.md
 └── README.md
 ```
 
@@ -27,6 +30,7 @@ This repository serves as the **single source of truth** for best practices that
 | Topic | Path | Description |
 |-------|------|-------------|
 | Layout | [`layout/`](layout/) | Page breaks, spacing, typography, CV design |
+| CV Content | [`cv-content/`](cv-content/) | Skills presentation, recruiter screening, ATS optimization |
 
 ## Contributing
 
