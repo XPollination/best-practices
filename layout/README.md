@@ -9,6 +9,7 @@ Design patterns and standards for professional document layout.
 | [page-break-patterns.md](page-break-patterns.md) | Page break decision patterns — when to break vs. keep together |
 | [spacing-system.md](spacing-system.md) | Vertical/horizontal spacing system for professional documents |
 | [cv-design-dach.md](cv-design-dach.md) | CV design best practices for the DACH region (Austria, Germany, Switzerland) |
+| [bold-usage.md](bold-usage.md) | Bold text in CVs — 10% rule, ATS, recruiter scanning, DACH conventions |
 
 ## Origin
 
