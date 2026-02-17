@@ -50,3 +50,11 @@ When contributing new best practices:
 3. Add a README.md to the topic directory linking to all documents
 4. Update this top-level README
 5. Follow git protocol: specific file staging, atomic commits, immediate push
+
+## License
+
+This project is dual-licensed:
+
+**Open Source:** [GNU Affero General Public License v3.0 (AGPL-3.0)](LICENSE) — you may use, modify, and distribute this work under the terms of the AGPL-3.0. Any project that incorporates this work must also be licensed under AGPL-3.0 and contribute all changes back.
+
+**Commercial:** If you require a different license for proprietary or commercial use, contact **office@xpollination.earth**.
