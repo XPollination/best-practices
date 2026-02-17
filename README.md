@@ -6,13 +6,21 @@ Central knowledge hub for design patterns, standards, and best practices shared 
 
 ```
 best-practices/
-├── layout/               # Document layout patterns
+├── layout/                    # Document layout patterns
 │   ├── page-break-patterns.md
 │   ├── spacing-system.md
 │   ├── bold-usage.md
 │   └── cv-design-dach.md
-├── cv-content/           # CV content strategy & recruiter optimization
+├── cv-content/                # CV content strategy & recruiter optimization
 │   └── recruiter-screening.md
+├── social-media/              # Social media content strategy
+│   └── linkedin/
+│       ├── algorithm-2026.md
+│       ├── bilingual-posting.md
+│       ├── engagement-signals.md
+│       └── first-comment-strategy.md
+├── knowledge-management/      # How to structure knowledge itself
+│   └── synaptic-folder-structure.md
 └── README.md
 ```
 
@@ -31,6 +39,8 @@ This repository serves as the **single source of truth** for best practices that
 |-------|------|-------------|
 | Layout | [`layout/`](layout/) | Page breaks, spacing, typography, CV design |
 | CV Content | [`cv-content/`](cv-content/) | Skills presentation, recruiter screening, ATS optimization |
+| Social Media | [`social-media/`](social-media/) | LinkedIn algorithm, bilingual posting, engagement, CTA strategy |
+| Knowledge Management | [`knowledge-management/`](knowledge-management/) | Folder structure, synaptic organization, cross-referencing |
 
 ## Contributing
 
