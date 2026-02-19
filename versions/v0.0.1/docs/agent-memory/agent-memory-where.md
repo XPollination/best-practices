@@ -1,28 +1,43 @@
 # Where Does Memory Go?
 
 > Status: emerging
-> Source: XPollination multi-agent operations (2026-01–02), Galarza (2026-02-17), XPollination spec (v0.0.1)
-> Version: 1.0.0 | Last updated: 2026-02-18
+> Source: XPollination spec (10 documents, esp. 02, 04, 06, 09), multi-agent operations (2026-01–02), Galarza (2026-02-17)
+> Version: 2.0.0 | Last updated: 2026-02-19
+> PDSA: [2026-02-19-agent-memory.pdsa.md](../../pdsa/2026-02-19-agent-memory.pdsa.md)
 
 ---
 
 ## Summary
 
-Agent memory is not stored in one place. Different memory types demand different storage mechanisms — from simple markdown files loaded into every prompt, to vector databases for semantic search, to knowledge graphs for relationship mapping. The right choice depends on access pattern, update frequency, and whether the memory needs to be human-readable.
+Memory storage is a spectrum from "always loaded, human-readable markdown" to "vector-indexed, graph-connected, machine-queryable databases." The XPollination spec envisions a 5-layer architecture; our practice uses 2.5 layers effectively. The key insight: start at the bottom (markdown files), and graduate upward only when the current layer's limitations are actually hit — not when they're theoretically possible.
 
 ---
 
 ## Context
 
-A common mistake is treating agent memory as a single system. In practice, memory is distributed across multiple storage layers, each optimized for different access patterns:
+### The Spec's 5-Layer Vision
 
-| Storage Type | Access Speed | Update Frequency | Human Readable | Best For |
-|---|---|---|---|---|
-| MEMORY.md (prompt-injected) | Instant (always loaded) | Low (manual edits) | Yes | Semantic memory — stable facts |
-| Topic files (on-demand read) | Fast (file read) | Medium | Yes | Detailed procedural knowledge |
-| Daily logs (append-only) | Slow (search needed) | High (every session) | Yes | Episodic memory — what happened |
-| Vector database | Fast (similarity query) | Medium | No | Semantic search across large histories |
-| Knowledge graph | Medium (traversal query) | Low | No | Relationships and convergence patterns |
+The XPollination spec (documents 01-10) describes a comprehensive memory architecture:
+
+| Layer | Spec Reference | What It Stores | How It's Accessed |
+|-------|---------------|----------------|-------------------|
+| 1. Working Memory | 02-CORE-ARCHITECTURE (Mirroring Loop) | Active conversation context | Automatic (in context window) |
+| 2. Session Memory | 03-AGENT-GUIDELINES (ConversationSession nodes) | Thought units within a session | Traversal by session_id |
+| 3. Structured Knowledge | 04-VECTOR-DB-AND-GRAPH (hybrid storage) | Embeddings + relationships + markdown | Vector search + graph traversal + file read |
+| 4. Truth Anchoring | 05-TRUTH-ANCHORING-SYSTEM | Scripture embeddings as fixed reference | Semantic similarity scoring |
+| 5. Distributed Knowledge | 09-DECENTRALIZATION-CHALLENGE | Lean central API + local processing | REST API queries from distributed agents |
+
+### Our Actual Implementation
+
+| Layer | Implementation | Status |
+|-------|---------------|--------|
+| 1. Working Memory | Context window | Automatic |
+| 2. Session Memory | Handoff files + task DNA | Implemented (simpler format) |
+| 3. Structured Knowledge | MEMORY.md + topic files + CLAUDE.md | Partially (markdown only, no vector/graph) |
+| 4. Truth Anchoring | Protocol rules in CLAUDE.md (fixed points) | Analogy only |
+| 5. Distributed Knowledge | Best-practices API (Qdrant) exists | Not integrated as agent memory |
+
+The gap is in Layer 3: the spec envisions Vector DB + Knowledge Graph + Git working together. We have Git (markdown files) only. The vector database exists in the best-practices API but agents don't use it as a memory retrieval system.
 
 ---
 
@@ -30,186 +45,178 @@ A common mistake is treating agent memory as a single system. In practice, memor
 
 ### Layer 1: MEMORY.md — The Always-Loaded Core
 
-**What it is:** A markdown file with a hard line cap (200 lines in our system) that is injected into every agent prompt automatically.
+**Mechanism:** Markdown file injected into every agent prompt at session start. Our system uses a 200-line cap.
 
-**What goes here:**
-- Critical protocols that must never be forgotten (git rules, role boundaries)
-- Project structure overview and key file paths
+**What belongs here:**
+- Critical protocols that must never be forgotten
 - Concise index pointing to topic files for detail
-- Lessons learned that are universal across sessions
+- Cross-project stable facts (database paths, infrastructure)
+- Most important lessons learned
 
-**What does NOT go here:**
-- Detailed procedures (too long — use topic files)
-- Session-specific context (changes too often)
-- Speculative or unverified patterns
-
-**Our implementation:**
+**Architecture:**
 ```
-~/.claude/projects/.../memory/MEMORY.md    → 200-line cap, concise index
-~/.claude/projects/.../memory/topic.md     → detailed notes per subject
-~/.claude/CLAUDE.md                        → global shared memory (all projects)
-project/CLAUDE.md                          → project-specific shared memory
+~/.claude/CLAUDE.md                             → global protocols (all projects, all agents)
+project/CLAUDE.md                               → project-specific protocols
+~/.claude/projects/.../memory/MEMORY.md         → 200-line concise index (auto-loaded)
+~/.claude/projects/.../memory/<topic>.md         → detailed notes (read on demand)
 ```
 
-**Key insight from Galarza:** "Markdown files work well — readable, debuggable, and require no infrastructure." The simplest storage that works is the right storage.
+**The 200-line cap is a feature:** It forces constant triage — every new entry must justify displacing an existing one. This is write-time filtering: the discipline of deciding what's important enough to cost prompt tokens in every future session.
 
-### Layer 2: Topic Files — Detailed Reference
+**Galarza's confirmation:** "Markdown files work well — readable, debuggable, and require no infrastructure." The simplest storage that works is the right storage.
 
-**What it is:** Individual markdown files organized by subject, read on demand when MEMORY.md references them.
+### Layer 2: Task DNA — Multi-Agent Episodic Memory
 
-**Structure:**
+**Discovery from PDSA research:** The PM system's task DNA is functionally equivalent to the spec's thought unit schema (03-AGENT-GUIDELINES). Task DNA stores:
+
+| Field | Memory Function |
+|-------|----------------|
+| `description` | What was the task (semantic) |
+| `findings` | What was learned (episodic) |
+| `rework_reason` | What went wrong (episodic) |
+| `acceptance_criteria` | What "done" looks like (procedural) |
+| `deliverables` | What was produced (semantic) |
+| `rework_iteration` | How many attempts (episodic) |
+
+**Access pattern:** Agents read DNA when claiming a task. The DNA IS the context — it contains everything the agent needs to understand the work, including the history of previous attempts.
+
+**Key difference from MEMORY.md:** Task DNA is task-scoped (only loaded when working that task). MEMORY.md is session-scoped (always loaded). DNA can be arbitrarily long; MEMORY.md is capped.
+
+### Layer 3: Topic Files — Detailed Reference Library
+
+**Mechanism:** Individual markdown files organized by subject. Read on demand when MEMORY.md references them.
+
 ```
 memory/
-├── MEMORY.md                  → concise index (always loaded)
+├── MEMORY.md                  → concise index (always loaded, 200-line cap)
 ├── liaison-process.md         → detailed liaison protocols
 ├── workflow-details.md        → workflow engine specifics
 ├── profile-assistant.md       → ProfileAssistant project notes
-└── debugging.md               → debugging patterns and solutions
+└── homepage-implementation-status.md  → current state tracking
 ```
 
-**Access pattern:** Agent reads MEMORY.md at startup, sees a reference like "Details: memory/liaison-process.md", and reads the topic file only when working on a liaison-related task.
+**Access pattern:** Agent reads MEMORY.md at startup, sees "Details: memory/liaison-process.md", reads topic file only when doing liaison-related work.
 
-**Advantage over putting everything in MEMORY.md:** Topic files can be any length. They don't consume prompt tokens unless the agent actually needs them.
+**Advantage:** No prompt-token cost unless actually needed. Can be any length. Version-controlled via git.
 
-### Layer 3: Daily Logs — Episodic Record
+### Layer 4: PDSA Documents — Trajectory Preservation
 
-**What it is:** Append-only files organized by date, capturing what happened in each session.
+**PDSA documents are NOT just process artifacts — they're the trajectory memory the spec envisions.**
 
-**Format (from Galarza):**
-```
-YYYY-MM-DD.md    → day's events, decisions, blockers, outcomes
-```
+The spec says: "The ability to reproduce how different thinkers arrived at convergence is itself the knowledge" (01-SYSTEM-VISION). PDSA documents capture exactly this:
 
-**Our equivalent:** Handoff files in `.claude/handoffs/` and PDSA documents that record each iteration's findings.
+| PDSA Section | Memory Function |
+|---|---|
+| PLAN | Hypothesis and research scope (what did we think going in?) |
+| DO | What was attempted (the execution trace) |
+| STUDY | What was learned, what surprised us (the distilled episodic memory) |
+| ACT | What should change (the conclusions that may become MEMORY.md entries) |
 
-**When to use:** When you need to answer "What happened on date X?" or "When did we first encounter problem Y?" Episodic memory is the record of events, not the distilled lessons (those go in MEMORY.md).
+**Location:** `versions/v0.0.1/pdsa/*.pdsa.md` — version-controlled, searchable, human-readable.
 
-### Layer 4: Vector Database — Semantic Search
+### Layer 5: Vector Database — Semantic Search (When Markdown Isn't Enough)
 
-**What it is:** Embeddings of knowledge units stored for similarity-based retrieval.
+**Our implementation:** Best-practices API with Qdrant (384-dim embeddings via HuggingFace all-MiniLM-L6-v2).
 
-**When it's necessary:**
-- Knowledge base exceeds what an agent can scan via file reads
-- Queries are fuzzy ("find anything related to authentication patterns")
-- Multiple projects need cross-pollination of insights
+**When you need this layer:**
+- Knowledge base exceeds what agents can find by reading files
+- Queries are fuzzy ("find anything related to authentication")
+- Cross-project knowledge needs to be surfaced
 
-**Our implementation (best-practices API):**
-- Qdrant vector database
-- HuggingFace embeddings (all-MiniLM-L6-v2, 384 dimensions)
-- REST API at localhost:3200 / bestpractice.xpollination.earth
-- Ingests best practice markdown files, returns relevant results for agent queries
+**The spec's vision (04-VECTOR-DB-AND-GRAPH-STRATEGY):** Four Qdrant collections (`thought_traces`, `convergence_zones`, `best_practices`, `scripture_anchors`). Every thought unit gets embedded. Real-time context injection on every utterance via `get_live_context()` (06-INTEGRATION-SPEC).
 
-**XPollination spec vision (02-CORE-ARCHITECTURE):** Every thought unit gets embedded and stored for real-time context injection during conversations. The vector DB enables "what's nearby?" queries that surface relevant prior work.
+**Current gap:** Our API stores best-practice documents but agents don't query it as part of their memory retrieval flow. The upgrade path: integrate API queries at session start or task start, alongside MEMORY.md loading.
 
-### Layer 5: Knowledge Graph — Relationships
+### Layer 6 (Future): Knowledge Graph — Relationships
 
-**What it is:** Explicit relationship mapping between concepts, people, decisions, and outcomes.
+**Not yet implemented.** The spec envisions Neo4j/FalkorDB for:
+- Tracing HOW conclusions were reached (`:EVOLVED_FROM` edges)
+- Detecting convergence across multiple thinkers (`:CONVERGES_AT`)
+- Truth anchoring (`:ANCHORED_IN` edges to scripture)
 
-**When it's necessary:**
-- You need to trace HOW a conclusion was reached (not just THAT it was reached)
-- Multiple thinkers converge on the same idea from different angles
-- You need to answer "What depends on X?" or "What influenced Y?"
-
-**XPollination spec vision (02-CORE-ARCHITECTURE, 03-AGENT-GUIDELINES):**
-```yaml
-convergence_zone:
-  id: uuid
-  summary: "What multiple thinkers are converging toward"
-  contributing_traces: [uuid]    # Which thought paths led here
-  angle_count: int               # How many distinct perspectives
-  status: "emerging" | "forming" | "established" | "best_practice"
-```
-
-**Our current state:** Not yet implemented. The spec envisions Neo4j or FalkorDB for graph storage. Currently, cross-references in markdown serve as a lightweight alternative.
+**Current lightweight equivalent:** Cross-references in markdown files. Links between documents serve as manual relationship edges.
 
 ---
 
 ## Evidence
 
-### From Our System
+### The Upgrade Path Is Real
 
-**What works (Layer 1+2 — markdown files):**
-- MEMORY.md has been the backbone of multi-agent coordination since January 2026
-- 200-line cap forces prioritization — only the most important facts survive
-- Topic files prevent MEMORY.md bloat while keeping detail accessible
-- Git-versioned: every change is tracked, reversible, and auditable
+Our system's evolution demonstrates the natural progression:
 
-**What's missing (Layers 4+5):**
-- When MEMORY.md reaches its cap, we manually decide what to cut — no automated promotion/demotion
-- Cross-project knowledge sharing relies on humans noticing connections
-- The best-practices API (Layer 4) exists but isn't yet integrated into agent workflows as a memory layer
+| Date | Memory Capacity | What Triggered the Upgrade |
+|------|----------------|---------------------------|
+| 2026-01 | CLAUDE.md only (~50 lines) | Initial protocols |
+| 2026-01 late | CLAUDE.md grew to 300+ lines | Accumulated lessons from multi-agent failures |
+| 2026-02 | MEMORY.md added (200-line cap) + topic files | CLAUDE.md was too large; needed index + detail separation |
+| 2026-02-17 | Best-practices API (Qdrant) deployed | Cross-project knowledge needed searchable access |
+| Future | Agent startup queries Qdrant | When 200-line MEMORY.md can't hold all critical knowledge |
 
-### From XPollination Spec
+Each upgrade was triggered by hitting an actual limitation, not by architectural ambition. This matches the principle: start simple, graduate when constraints bite.
 
-The 5-phase data flow (Capture → Decode → Refine → Embed/Store → Resurface) maps directly to memory layers:
-- **Capture** → Daily logs / handoff files
-- **Decode** → Topic files (structured interpretation of raw events)
-- **Refine** → MEMORY.md (distilled, validated knowledge)
-- **Embed/Store** → Vector DB + Knowledge Graph
-- **Resurface** → Prompt injection (MEMORY.md) + semantic search (Vector DB)
+### Git History IS the Never-Delete Layer
 
-### From External Research
+The spec says thought traces should never be deleted (04). Our git history achieves this: every version of MEMORY.md, every CLAUDE.md edit, every PDSA document is preserved in git. The 200-line cap trims the ACTIVE memory, but the HISTORY is permanent. This is an accidental implementation of the spec's principle.
 
-Galarza emphasizes starting simple: "Markdown files work well." The progression from files → vector DB → knowledge graph should be driven by actual need, not architectural ambition. Most agent systems work well with Layer 1+2 alone until the knowledge base grows beyond what file-based access can handle.
+### Thomas's Decentralization Insight Applies to Memory
+
+From spec 09 (DECENTRALIZATION-CHALLENGE), Thomas pivoted from centralized to distributed: "If every AI in the world queries one server, tokens burn away."
+
+Applied to memory: agent memory SHOULD be local (MEMORY.md, CLAUDE.md, topic files). The central system (PM database, best-practices API) stores coordination data and collective knowledge. This is exactly our current architecture — it emerged naturally before the spec articulated it.
 
 ---
 
 ## Examples
 
-### Minimal Setup (New Project)
+### Minimal Setup (New Project, Day 1)
 
 ```
 project/
-├── CLAUDE.md              → project protocols (loaded automatically)
-└── .claude/
-    └── memory/
-        └── MEMORY.md      → key facts, 200-line cap
+├── CLAUDE.md                  → project protocols
 ```
 
-### Growing Project (Multiple Agents, Accumulated Knowledge)
+One file. No overhead. This is enough to start.
+
+### Working System (Multi-Agent, Month 2)
 
 ```
 project/
-├── CLAUDE.md              → shared protocols
-└── .claude/
-    └── memory/
-        ├── MEMORY.md      → concise index
-        ├── debugging.md   → debugging patterns
-        ├── architecture.md → design decisions
-        └── anti-patterns.md → what NOT to do
+├── CLAUDE.md                  → shared protocols
+├── .claude/
+│   └── memory/
+│       ├── MEMORY.md          → 200-line index
+│       ├── workflow.md        → workflow details
+│       └── debugging.md      → debugging patterns
+├── data/xpollination.db      → PM system (task DNA = episodic memory)
+└── versions/v0.0.1/
+    └── pdsa/                  → trajectory memory (PDSA documents)
 ```
 
-### Mature System (Cross-Project Knowledge)
+### Mature System (Cross-Project, Semantic Search)
 
+Add to the above:
 ```
-~/.claude/
-├── CLAUDE.md                          → global memory (all projects)
-└── projects/
-    └── {project}/
-        └── memory/
-            ├── MEMORY.md              → project-specific index
-            └── *.md                   → topic files
-
-Vector DB (Qdrant)                     → semantic search across all knowledge
-Knowledge Graph (Neo4j)                → relationship mapping
-REST API                               → agent query interface
+Vector DB (Qdrant)             → semantic search across all knowledge
+REST API                       → agent query interface at session/task start
 ```
 
 ---
 
 ## Open Questions
 
-1. **Promotion/demotion** — When a topic file's content becomes critical enough for MEMORY.md, or when a MEMORY.md entry becomes stale enough to demote, what triggers the move? Currently manual.
-2. **Vector DB integration point** — Should agents query the vector DB as part of their startup routine (alongside loading MEMORY.md), or only on-demand during specific tasks?
-3. **Graph vs. cross-references** — At what knowledge volume do markdown cross-references break down and a proper knowledge graph becomes necessary?
-4. **Decentralized memory** — The XPollination spec envisions distributed agents with local caches syncing to a central knowledge API. How does memory sync work when multiple agents might write conflicting memories simultaneously?
+1. **Integration trigger** — When should agents start querying the vector API as part of their memory flow? A concrete signal: when agents routinely can't find information they need in MEMORY.md + topic files.
+2. **Knowledge graph necessity** — At what relationship complexity do markdown cross-references break down? Current hypothesis: when convergence detection across 3+ independent analysis paths is needed.
+3. **Decentralized memory sync** — If multiple agents write to separate memory stores, how do you merge without conflicts? Git handles file-level merging; vector/graph stores have no equivalent.
+4. **DNA as formal memory** — Should task DNA include explicit memory-intent fields (e.g., `lessons_learned`, `persist_to_memory`)? This would make the PM system an explicit rather than accidental memory layer.
 
 ---
 
 ## Related
 
-- [Synaptic Folder Structure](../knowledge-management/synaptic-folder-structure.md) — organizing files as knowledge units
-- [02-CORE-ARCHITECTURE spec](../../spec/02-CORE-ARCHITECTURE.md) — hybrid storage (vector + graph + markdown)
-- [09-DECENTRALIZATION-CHALLENGE spec](../../spec/09-DECENTRALIZATION-CHALLENGE.md) — local vs. central memory architecture
+- [PDSA: Agent Memory Research](../../pdsa/2026-02-19-agent-memory.pdsa.md) — the research journey
+- [Synaptic Folder Structure](../knowledge-management/synaptic-folder-structure.md) — organizing knowledge files
+- [02-CORE-ARCHITECTURE spec](../../spec/02-CORE-ARCHITECTURE.md) — 5-phase data flow
+- [04-VECTOR-DB-AND-GRAPH-STRATEGY spec](../../spec/04-VECTOR-DB-AND-GRAPH-STRATEGY.md) — hybrid storage architecture
+- [09-DECENTRALIZATION-CHALLENGE spec](../../spec/09-DECENTRALIZATION-CHALLENGE.md) — central vs. distributed
 - [agent-memory-what.md](agent-memory-what.md) — what is worth remembering
-- [agent-memory-when.md](agent-memory-when.md) — lifecycle triggers for writing memory
+- [agent-memory-when.md](agent-memory-when.md) — lifecycle triggers
