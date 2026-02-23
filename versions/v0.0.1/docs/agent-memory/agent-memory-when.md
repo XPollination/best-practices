@@ -419,17 +419,17 @@ EOF
 
 2. **Sleep consolidation scheduling** — When should consolidation run? During agent idle time? On a fixed schedule? Triggered by accumulated unprocessed data volume? Letta's "downtime processing" and EverMemOS's "event boundary" detection offer different approaches.
 
-3. **Pheromone tuning** — Is 0.995/hour the right decay rate? Should different thought types decay at different rates? Should consolidation vectors decay slower than originals?
+3. **Continuous write for markdown systems** — Is there a practical way to approximate pheromone reinforcement for MEMORY.md? Perhaps a "last used" field on each entry, updated by agents who reference it?
 
-4. **Continuous write for markdown systems** — Is there a practical way to approximate pheromone reinforcement for MEMORY.md? Perhaps a "last used" field on each entry, updated by agents who reference it?
+4. **Stigmergic activation detection** — How do you know when your system has crossed ρ_c? What metrics signal that collective trace features should be activated?
 
-5. **Stigmergic activation detection** — How do you know when your system has crossed ρ_c? What metrics signal that collective trace features should be activated?
+See also: [pheromone tuning](agent-memory-where.md#open-questions) | [co-retrieval validation experiment](agent-memory-where.md#open-questions) | [write-time filtering limits](agent-memory-what.md#open-questions)
 
 ---
 
 ## Related
 
-- [PDSA: Agent Memory Research](../../pdsa/2026-02-19-agent-memory.pdsa.md) — the research journey (3 iterations)
+- [PDSA: Agent Memory Research](../../pdsa/2026-02-19-agent-memory.pdsa.md) — the research journey (4 iterations)
 - [14-AGENT-CONTEXT](../../feedback/agent-memory/14-AGENT-CONTEXT.md) — consolidated vision with MVP and pheromone model
 - [12-DEEP-DIVE-ITER3](../../feedback/agent-memory/12-DEEP-DIVE-THINKING-INFRASTRUCTURE-ITER3.md) — sleep consolidation, stigmergic phase transition, RL formulation
 - [13-MVP-SPEC](../../feedback/agent-memory/13-MVP-SPEC-THOUGHT-TRACING.md) — pheromone model details, thought lifecycle
