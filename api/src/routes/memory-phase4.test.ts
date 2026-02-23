@@ -9,8 +9,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { QdrantClient } from "@qdrant/js-client-rest";
-import { think, retrieve, highways, getExistingTags } from "../services/thoughtspace.js";
-import { embed } from "../services/embedding.js";
+import { think, highways, getExistingTags } from "../services/thoughtspace.js";
 import { getDb } from "../services/database.js";
 
 const qdrant = new QdrantClient({ url: "http://localhost:6333" });
@@ -54,7 +53,8 @@ describe("AC1: highways() returns thoughts sorted by traffic_score", () => {
   beforeAll(async () => {
     if (!serverUp) return;
 
-    // Create 3 thoughts with different access patterns
+    // Create 3 thoughts and directly set payload to control access patterns
+    // (using setPayload instead of retrieve() avoids Qdrant indexing delays)
     const t1 = await think({
       content: "Highway test: high-traffic thought about distributed consensus algorithms in multi-agent systems.",
       contributor_id: "agent-p4-setup",
@@ -88,30 +88,50 @@ describe("AC1: highways() returns thoughts sorted by traffic_score", () => {
     lowTrafficId = t3.thought_id;
     testThoughtIds.push(lowTrafficId);
 
-    // Simulate different access patterns using retrieve()
-    // High traffic: 5 accesses from 3 agents → traffic_score = 5 * 3 = 15
-    const embHigh = await embed("distributed consensus algorithms");
-    for (const agentId of agentIds) {
-      await retrieve({ query_embedding: embHigh, agent_id: agentId, session_id: `s-high-${agentId}` });
-    }
-    // 2 more from agent alpha
-    await retrieve({ query_embedding: embHigh, agent_id: agentIds[0], session_id: "s-high-extra1" });
-    await retrieve({ query_embedding: embHigh, agent_id: agentIds[0], session_id: "s-high-extra2" });
+    const now = new Date().toISOString();
 
-    // Medium traffic: 3 accesses from 2 agents → traffic_score = 3 * 2 = 6
-    const embMed = await embed("event-driven architecture patterns");
-    await retrieve({ query_embedding: embMed, agent_id: agentIds[0], session_id: "s-med-1" });
-    await retrieve({ query_embedding: embMed, agent_id: agentIds[1], session_id: "s-med-2" });
-    await retrieve({ query_embedding: embMed, agent_id: agentIds[0], session_id: "s-med-3" });
+    // High traffic: 500 accesses from 3 agents → traffic_score = 500 * 3 = 1500
+    // (High values ensure these appear in top results despite accumulated test data)
+    await qdrant.setPayload(COLLECTION, {
+      points: [highTrafficId],
+      payload: {
+        access_count: 500,
+        accessed_by: [agentIds[0], agentIds[1], agentIds[2]],
+        last_accessed: now,
+        pheromone_weight: 5.0,
+      },
+      wait: true,
+    });
 
-    // Low traffic: 1 access from 1 agent → won't meet threshold
-    const embLow = await embed("database indexing strategies");
-    await retrieve({ query_embedding: embLow, agent_id: agentIds[0], session_id: "s-low-1" });
+    // Medium traffic: 100 accesses from 2 agents → traffic_score = 100 * 2 = 200
+    await qdrant.setPayload(COLLECTION, {
+      points: [medTrafficId],
+      payload: {
+        access_count: 100,
+        accessed_by: [agentIds[0], agentIds[1]],
+        last_accessed: now,
+        pheromone_weight: 3.0,
+      },
+      wait: true,
+    });
+
+    // Low traffic: 1 access from 1 agent → won't meet threshold (access_count < 3)
+    await qdrant.setPayload(COLLECTION, {
+      points: [lowTrafficId],
+      payload: {
+        access_count: 1,
+        accessed_by: [agentIds[0]],
+        last_accessed: now,
+        pheromone_weight: 1.05,
+      },
+      wait: true,
+    });
   });
 
   it("returns results sorted by traffic_score descending", async () => {
     if (!serverUp) return;
-    const results = await highways({ min_access: 3, min_users: 2, limit: 20 });
+    // Use high limit to include all highway-eligible thoughts (test data + accumulated)
+    const results = await highways({ min_access: 3, min_users: 2, limit: 100 });
 
     // Should have at least 2 results (high and medium traffic thoughts)
     const ourResults = results.filter((r) =>
@@ -130,9 +150,9 @@ describe("AC1: highways() returns thoughts sorted by traffic_score", () => {
     const results = await highways({ min_access: 3, min_users: 2 });
     const high = results.find((r) => r.thought_id === highTrafficId);
 
-    // After 5+ retrievals from 3 agents, this thought must qualify
+    // After setting access_count=500 from 3 agents, this thought must qualify
     expect(high).toBeDefined();
-    expect(high!.access_count).toBeGreaterThanOrEqual(3);
+    expect(high!.access_count).toBeGreaterThanOrEqual(100);
     expect(high!.unique_users).toBeGreaterThanOrEqual(2);
   });
 
