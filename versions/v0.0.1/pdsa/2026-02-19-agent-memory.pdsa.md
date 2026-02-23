@@ -3,7 +3,7 @@
 **Date:** 2026-02-19
 **Author:** PDSA Agent
 **Task:** best-practice-agent-memory
-**Status:** ACTIVE (iteration 9 — general specification for XPollination thought tracing system)
+**Status:** ACTIVE (iteration 10 — conversational interface, security architecture, spec links)
 
 ---
 
@@ -663,16 +663,16 @@ Create a general specification thorough enough that a developer can read ONLY th
 
 | Document | Key Contribution to Spec |
 |----------|-------------------------|
-| `api/src/index.ts` + route files | Current API implementation details |
-| `api/src/services/embedding.ts` | Current embedding model (all-MiniLM-L6-v2, 384-dim) |
-| `api/src/services/qdrant.ts` | Current Qdrant client, collection setup, query patterns |
-| 02-CORE-ARCHITECTURE | 5-phase data flow, mirroring loop, real-time context injection |
-| 03-AGENT-GUIDELINES | Thought unit schema, convergence zone schema, agent lifecycle |
-| 04-VECTOR-DB-AND-GRAPH-STRATEGY | Qdrant collections, HNSW config, search patterns, embedding strategy |
-| 06-INTEGRATION-SPEC | Docker stack, voice pipeline, WebSocket, API endpoints |
-| 12-DEEP-DIVE-ITER3 | 8-layer architecture, Hopfield theory, pheromone model, sleep consolidation, geometric dynamics |
-| 13-MVP-SPEC-THOUGHT-TRACING | Buildable MVP: /think, /retrieve, /highways, payload schema, pheromone parameters, implementation timeline |
-| 14-AGENT-CONTEXT | Consolidated vision, mining metaphor, MVP proves 5 things, glossary |
+| [`api/src/index.ts`](../../../api/src/index.ts) + route files | Current API implementation details |
+| [`api/src/services/embedding.ts`](../../../api/src/services/embedding.ts) | Current embedding model (all-MiniLM-L6-v2, 384-dim) |
+| [`api/src/services/qdrant.ts`](../../../api/src/services/qdrant.ts) | Current Qdrant client, collection setup, query patterns |
+| [02-CORE-ARCHITECTURE](../spec/02-CORE-ARCHITECTURE.md) | 5-phase data flow, mirroring loop, real-time context injection |
+| [03-AGENT-GUIDELINES](../spec/03-AGENT-GUIDELINES.md) | Thought unit schema, convergence zone schema, agent lifecycle |
+| [04-VECTOR-DB-AND-GRAPH-STRATEGY](../spec/04-VECTOR-DB-AND-GRAPH-STRATEGY.md) | Qdrant collections, HNSW config, search patterns, embedding strategy |
+| [06-INTEGRATION-SPEC](../spec/06-INTEGRATION-SPEC.md) | Docker stack, voice pipeline, WebSocket, API endpoints |
+| [12-DEEP-DIVE-ITER3](../feedback/agent-memory/12-DEEP-DIVE-THINKING-INFRASTRUCTURE-ITER3.md) | 8-layer architecture, Hopfield theory, pheromone model, sleep consolidation, geometric dynamics |
+| [13-MVP-SPEC-THOUGHT-TRACING](../feedback/agent-memory/13-MVP-SPEC-THOUGHT-TRACING.md) | Buildable MVP: /think, /retrieve, /highways, payload schema, pheromone parameters, implementation timeline |
+| [14-AGENT-CONTEXT](../feedback/agent-memory/14-AGENT-CONTEXT.md) | Consolidated vision, mining metaphor, MVP proves 5 things, glossary |
 
 ---
 
@@ -976,7 +976,7 @@ For all vectors where last_accessed < (now - 1 hour):
 
 **Why this matters:** Co-retrieval reveals functional associations no agent explicitly created. Two thoughts about "organizational design" and "microservice architecture" might be repeatedly co-retrieved — revealing that teams working on org structure also need tech architecture insights.
 
-**Validation gap (documented in WHERE doc):** Co-retrieval may be noise from embedding proximity rather than genuine emergent knowledge. The proposed experiment (WHERE doc, Open Questions #3) tests this by comparing co-retrieval edges against explicit cross-references.
+**Validation gap (documented in [WHERE doc](../docs/agent-memory/agent-memory-where.md#open-questions)):** Co-retrieval may be noise from embedding proximity rather than genuine emergent knowledge. The proposed experiment (WHERE doc, Open Questions #3) tests this by comparing co-retrieval edges against explicit cross-references.
 
 **Cap rationale:** 50 entries is enough to detect stable patterns without unbounded payload growth. Older entries naturally rotate out as new co-retrievals are appended.
 
@@ -992,36 +992,106 @@ For all vectors where last_accessed < (now - 1 hour):
 - **Robust:** Separate worker process using `node-cron` or `APScheduler` (if switching to Python). Better for production reliability.
 - **Note:** The CX22 server (2 vCPU, 8GB RAM) can handle both jobs as in-process intervals. A separate worker is premature for the current scale.
 
-### 7. Agent Integration
+### 7. Agent Integration — Conversational Interface
 
-**How agents connect to the system:**
+**Design principle:** Agents should NOT need to know the API. They talk to long-term memory like talking to a brain — in natural language. The system decides internally what operations to perform.
 
-**Option A: Direct HTTP (MVP — recommended for simplicity)**
-Agents make HTTP calls to `localhost:3200` from their bash environment:
-```bash
-# Contribute a thought
-curl -X POST http://localhost:3200/api/v1/think \
-  -H "Content-Type: application/json" \
-  -d '{"content":"...", "contributor_id":"agent-pdsa", "contributor_name":"PDSA", "thought_type":"original", "tags":["memory"]}'
+#### The Conversational Endpoint
 
-# Retrieve
-curl -X POST http://localhost:3200/api/v1/retrieve \
-  -H "Content-Type: application/json" \
-  -d '{"query":"agent memory patterns", "agent_id":"agent-dev"}'
+**`POST /api/v1/memory`** — Single agent-facing endpoint
+
+**Request:**
+```json
+{
+  "prompt": "What do you know about role separation in multi-agent systems?",
+  "agent_id": "agent-dev-002",
+  "agent_name": "DEV Agent",
+  "context": "I'm implementing a new agent workflow and want to avoid coordination failures."
+}
 ```
 
-**Option B: MCP Tool (future — tighter integration)**
-Register `/think` and `/retrieve` as MCP tools in the xpollination-mcp-server. Agents call them naturally through the MCP protocol without needing bash/curl.
+**Response:**
+```json
+{
+  "response": "Based on collective knowledge, role boundaries prevent coordination collapse. Key insights:\n\n1. QA writes tests (specification), Dev implements (never changes tests), PDSA plans (never codes). Violations cause cascading failures.\n2. On 2026-02-06, QA fixed implementation code AND rewrote tests — this destroyed the review chain.\n\nRelated highways: 'role-separation' (12 accesses, 4 unique agents), 'coordination-patterns' (8 accesses, 3 agents).",
+  "session_id": "session-uuid",
+  "sources": [
+    {"thought_id": "uuid-1", "contributor": "PDSA Agent", "score": 0.87},
+    {"thought_id": "uuid-3", "contributor": "QA Agent", "score": 0.72}
+  ],
+  "operations_performed": ["retrieve", "reinforce"],
+  "thoughts_contributed": 0,
+  "thoughts_retrieved": 3
+}
+```
 
-**Option C: Claude Code Skill (future — highest integration)**
-Create a `/think` and `/retrieve` skill in `~/.claude/skills/` that wraps the HTTP calls. Agents invoke via `/think "my insight"`.
+#### How the System Decides: Contribution vs. Query
 
-**Recommendation:** Start with Option A. It requires no changes to the MCP server or Claude Code configuration. Agents already have bash access and can call curl. Once the system proves valuable, upgrade to Option B or C.
+The conversational layer classifies the agent's prompt into one or more internal operations:
 
-**Auto-contribution hooks (future):**
-- After every PDSA Study phase → auto-POST /think with findings
-- After every task DNA update → auto-POST /think with key findings
-- On session end → auto-POST /think with session summary
+| Signal in Prompt | Internal Operation | Example |
+|-----------------|-------------------|---------|
+| Question ("What do you know about...?", "How should...?") | `/retrieve` internally | "What patterns exist for error handling?" |
+| Information-rich statement ("I learned that...", "We discovered...") | `/think` internally | "Role boundaries prevent coordination collapse when QA writes tests and Dev implements." |
+| Both question and contribution | `/think` + `/retrieve` | "I found that pheromone decay at 0.995/hour works well. What other decay rates have been tried?" |
+| Status/reflection ("After completing X, the key insight was...") | `/think` internally | "After 3 iterations, the main learning is that task DNA IS episodic memory." |
+| Highway request ("What's trending?", "What are the most accessed insights?") | `/highways` internally | "What are the most referenced patterns across all agents?" |
+
+**Classification approach (MVP):** Simple heuristic — check for question marks, classify information-density by prompt length and declarative structure. A 10-line prompt with no question marks is likely a contribution. A short prompt ending in `?` is likely a query.
+
+**Classification approach (future):** LLM-based intent detection. The system uses a small, fast model to classify the prompt before routing to internal endpoints. This adds latency but handles ambiguous prompts better.
+
+#### Internal Architecture
+
+```
+Agent → POST /api/v1/memory (conversational)
+         │
+         ├── Intent Classifier
+         │     ├── "contribute" → internal /think
+         │     ├── "query" → internal /retrieve
+         │     ├── "both" → internal /think + /retrieve
+         │     └── "highways" → internal /highways
+         │
+         ├── Response Formatter
+         │     ├── Synthesize results into natural language
+         │     ├── Include source attribution
+         │     └── Attach metadata (operations, counts, session_id)
+         │
+         └── Returns: natural language response + structured metadata
+```
+
+**The internal endpoints (/think, /retrieve, /highways) remain unchanged.** They are implementation details, not agent-facing. The conversational layer is a thin wrapper that:
+1. Classifies intent
+2. Calls internal endpoints with extracted parameters
+3. Formats results into a coherent response
+
+#### What Metadata Accompanies Natural Language?
+
+The response includes both human-readable text AND structured metadata:
+- `response` — natural language answer the agent can use directly
+- `sources` — thought IDs with contributors and scores (for provenance)
+- `operations_performed` — what the system did internally (transparency)
+- `thoughts_contributed` / `thoughts_retrieved` — counts (for monitoring)
+- `session_id` — for co-retrieval grouping
+
+This means agents receive answers they can use immediately, while the system maintains full traceability.
+
+#### How Simple Can It Be?
+
+**Minimum viable conversational layer:**
+1. If prompt contains `?` → `/retrieve` with prompt as query
+2. If prompt length > 100 chars and no `?` → `/think` with prompt as content
+3. If both → `/think` then `/retrieve`
+4. Format response as: "Here's what I found: [results]" or "Stored your insight. Here's related knowledge: [results]"
+
+This is ~50 lines of code on top of the existing internal endpoints. The sophistication can grow later (LLM classifier, better response synthesis), but the basic pattern is trivial.
+
+#### Auto-Contribution Hooks (Future)
+
+Beyond explicit prompts, the system could receive automatic contributions:
+- After every PDSA Study phase → agent prompt: "I learned: [findings]"
+- After every task DNA update → system extracts key findings
+- On session end → agent sends session summary as contribution
 
 ### 8. Backward Compatibility
 
@@ -1049,7 +1119,8 @@ The existing `/api/v1/query` and `/api/v1/ingest` endpoints MUST continue workin
 | Query logging | ✅ Qdrant `queries` collection | ✅ SQLite `query_log` table | Migrate from Qdrant to SQLite |
 | Existing endpoints | ✅ /query, /ingest, /health | ✅ Preserved | No change needed |
 | Embedding model | 384-dim MiniLM | 384-dim MiniLM (keep for MVP) | No change |
-| Agent integration | ❌ None | ✅ Direct HTTP (MVP) | Documentation + agent workflow integration |
+| Agent integration | ❌ None | ✅ Conversational endpoint (POST /memory) | Intent classifier + response formatter wrapping internal endpoints |
+| Authentication | ❌ None (CORS open) | ✅ Cryptographic access control | Schema accommodation now; implementation later (see iteration 10) |
 
 ### 10. Implementation Phases
 
@@ -1102,16 +1173,20 @@ The existing `/api/v1/query` and `/api/v1/ingest` endpoints MUST continue workin
 
 **Acceptance test:** After multiple agents access shared thoughts, /highways returns the most-trafficked ones.
 
-#### Phase 4: Agent Integration (Week 4)
-**Goal:** Agents can contribute and retrieve as part of their workflow
+#### Phase 4: Conversational Interface + Agent Integration (Week 4)
+**Goal:** Agents interact with memory through natural language
 
-1. Document HTTP API for agents (curl examples)
-2. Create example scripts: contribute-thought.sh, retrieve-knowledge.sh
-3. Test with real agents: PDSA contributes findings, DEV retrieves relevant patterns
-4. (Optional) Create MCP tool wrapping /think and /retrieve
-5. (Optional) Create Claude Code skill for /think
+1. Implement `POST /api/v1/memory` conversational endpoint
+   - Intent classifier (heuristic MVP: question marks, prompt length)
+   - Router to internal /think, /retrieve, /highways
+   - Response formatter (natural language + source metadata)
+2. Test with real agents:
+   - PDSA sends "I learned that task DNA maps to thought unit schema" → system stores as contribution
+   - DEV sends "What patterns exist for role separation?" → system retrieves relevant thoughts
+3. (Optional) Create MCP tool wrapping /memory for tighter integration
+4. (Optional) Create Claude Code skill `/memory "prompt"`
 
-**Acceptance test:** PDSA agent completes a task → contributes findings via /think → DEV agent on next task retrieves relevant insights via /retrieve.
+**Acceptance test:** PDSA agent completes a task → sends findings as natural language prompt → DEV agent queries about the same topic → receives PDSA's contribution in the response.
 
 ---
 
@@ -1119,11 +1194,11 @@ The existing `/api/v1/query` and `/api/v1/ingest` endpoints MUST continue workin
 
 ### What I Learned from Reading the Specs
 
-1. **The MVP spec (doc 13) is remarkably concrete.** It includes code snippets, exact parameter values, and a week-by-week timeline. The gap between "spec" and "implementation plan" is smaller than expected — most of the design work is already done in doc 13.
+1. **The [MVP spec (doc 13)](../feedback/agent-memory/13-MVP-SPEC-THOUGHT-TRACING.md) is remarkably concrete.** It includes code snippets, exact parameter values, and a week-by-week timeline. The gap between "spec" and "implementation plan" is smaller than expected — most of the design work is already done in doc 13.
 
 2. **The embedding model decision is less critical than I initially thought.** The spec recommends BGE-M3 (1024-dim, multilingual). The current system uses all-MiniLM-L6-v2 (384-dim). For the MVP, 384-dim is fine — the pheromone model and access tracking are the novel features, not the embedding quality. BGE-M3 would require significantly more RAM on the CX22 (8GB total) and adds deployment complexity. Migration path: when the system proves valuable, upgrade embedding model and re-embed the collection.
 
-3. **The spec envisions FastAPI (Python) but our system is Fastify (Node.js/TypeScript).** This is a practical divergence. The current codebase is TypeScript — rewriting in Python adds effort without clear benefit for the MVP. The Qdrant client libraries are equally good in both languages. **Recommendation: stay with Fastify/TypeScript** and translate the Python code examples from doc 13 to TypeScript.
+3. **The spec envisions FastAPI (Python) but our system is Fastify (Node.js/TypeScript).** This is a practical divergence. The current codebase is TypeScript — rewriting in Python adds effort without clear benefit for the MVP. The Qdrant client libraries are equally good in both languages. **Recommendation: stay with Fastify/TypeScript** and translate the Python code examples from [doc 13](../feedback/agent-memory/13-MVP-SPEC-THOUGHT-TRACING.md) to TypeScript.
 
 4. **The `queries` collection in Qdrant is an overengineered analytics store.** The current system embeds query vectors in Qdrant — wasteful because they're never searched semantically. SQLite is better for analytics (cheaper storage, easier to query with GROUP BY, JOIN, etc.). The migration from Qdrant queries collection to SQLite query_log is a simplification, not added complexity.
 
@@ -1134,14 +1209,14 @@ The existing `/api/v1/query` and `/api/v1/ingest` endpoints MUST continue workin
 ### What Is Clear vs. Ambiguous
 
 **Clear:**
-- Endpoint signatures (/think, /retrieve, /highways) — well-defined in doc 13
+- Endpoint signatures (/think, /retrieve, /highways) — well-defined in [doc 13](../feedback/agent-memory/13-MVP-SPEC-THOUGHT-TRACING.md)
 - Payload schema — exact fields with types
 - Pheromone parameters — 0.05 boost, 0.995 decay, 1.0 initial, 0.1 floor, 10.0 ceiling
 - Co-retrieval tracking mechanism — update on every retrieve
 - Highway detection — access_count × unique_users sorting
 
 **Ambiguous:**
-1. **Authentication/authorization.** No spec document addresses how agents authenticate. API key? Agent ID in request body (current design)? OAuth? For MVP, trusting the `contributor_id`/`agent_id` in request bodies is acceptable (all agents run on the same server). For production, this needs resolution.
+1. **Authentication/authorization.** No spec document addresses how agents authenticate. Thomas requires cryptographic access control from the start (see iteration 10 for security architecture reflection). The schema must accommodate `knowledge_space_id` and `access_grants` even if encryption isn't implemented in MVP.
 
 2. **Payload size limits.** What's the maximum `content` length? The spec says "decoded thought in clear language" — could be a sentence or a page. The embedding model has a max input length (512 tokens for MiniLM). Content longer than this should be truncated for embedding but stored in full.
 
@@ -1171,10 +1246,10 @@ The existing `/api/v1/query` and `/api/v1/ingest` endpoints MUST continue workin
 | Stay with Fastify/TypeScript | Existing codebase, no benefit to rewriting | Rewrite in FastAPI/Python (spec's preferred stack) |
 | Separate collections (best_practices + thought_space) | Different access patterns, clean separation | Single collection with type filter |
 | SQLite for query_log (not Qdrant) | Cheaper for analytics, SQL queries | Keep Qdrant queries collection |
-| Direct HTTP for agent integration (MVP) | Simplest, no infrastructure changes | MCP tool (tighter integration, more work) |
+| Conversational interface (POST /memory) | Agents don't need to know API; zero-knowledge pattern | Direct HTTP to /think, /retrieve, /highways (rejected by Thomas) |
 | Skip sleep consolidation for MVP | Insufficient data volume, add complexity | Include from start |
 | setInterval for background jobs (MVP) | Simplest for single-instance | Separate worker process |
-| Trust request-body agent_id (MVP) | All agents on same server | API key authentication |
+| Cryptographic access control (future) | Security from start; see iteration 10 reflection | Trust request-body agent_id (rejected by Thomas) |
 
 ### Process Reflection
 
@@ -1189,4 +1264,232 @@ The most important output of this iteration is the gap analysis table (Section 9
 | File | Description |
 |------|-------------|
 | `pdsa/2026-02-19-agent-memory.pdsa.md` | This document — iteration 9 adds the general specification |
-| `docs/agent-memory/agent-memory-where.md` | Updated: factual corrections about API state, target system clearly labeled |
+| [`docs/agent-memory/agent-memory-where.md`](../docs/agent-memory/agent-memory-where.md) | Updated: factual corrections about API state, target system clearly labeled |
+
+---
+
+---
+
+# ITERATION 10: Conversational Interface, Security Architecture, Spec Links
+
+**Date:** 2026-02-23
+**Rework reason:** Thomas's rework with three items: (1) Add clickable spec links to PDSA iteration 9, (2) Replace direct API agent integration with conversational interface, (3) Reflect on cryptographic access control and security-first design.
+
+---
+
+## Changes to Iteration 9 (Items 1 + 2)
+
+### Item 1: Clickable Spec Links
+
+Added relative markdown links to all spec references in the PDSA iteration 9 Sources Read table and throughout the STUDY section. Links use relative paths from `pdsa/` to `../spec/`, `../feedback/agent-memory/`, and `../../../api/src/`.
+
+### Item 2: Conversational Interface Redesign
+
+**What changed:** Replaced Section 7 (Agent Integration) entirely. The three-option model (Direct HTTP / MCP Tool / Claude Code Skill) was rejected by Thomas because agents need to KNOW the API. New design:
+
+- Single agent-facing endpoint: `POST /api/v1/memory`
+- Agent sends natural language prompt
+- System classifies intent (contribute / query / both / highways)
+- Internal endpoints (/think, /retrieve, /highways) unchanged
+- Response includes natural language answer + structured metadata (sources, operations, counts)
+
+**Key design decisions in the new Section 7:**
+- MVP classifier: heuristic (question marks, prompt length)
+- Future classifier: LLM-based intent detection
+- Response format: natural language `response` + `sources[]` + `operations_performed`
+- ~50 lines of code for minimum viable conversational layer
+
+Updated Phase 4 in implementation plan to match.
+
+---
+
+## Item 3: Security Architecture Reflection — Cryptographic Access Control
+
+### Thomas's Vision
+
+> "Company knowledge base INVITEs contributor agents. Those agents get CRYPTOGRAPHIC access. Unauthenticated agents cannot access knowledge — NOT because software blocks it, but because KNOWLEDGE ITSELF is cryptographically unavailable without the right key."
+
+This is a fundamentally different security model than API-key authentication. The distinction:
+- **API-key model:** Knowledge is readable by anyone with database access. Software enforces who can call the API. An attacker who bypasses the software (direct DB access, stolen backup, memory dump) sees everything.
+- **Cryptographic model:** Knowledge is encrypted at rest. Without the decryption key, the data is meaningless. An attacker with full database access sees encrypted blobs. The knowledge ITSELF is unavailable, not just the API.
+
+### How This Changes the Data Model
+
+The current payload schema stores everything in plaintext:
+```json
+{
+  "content": "Role boundaries prevent coordination collapse...",
+  "contributor_id": "agent-pdsa-001",
+  ...
+}
+```
+
+With cryptographic access control, the schema needs:
+
+```json
+{
+  "knowledge_space_id": "ks-xpollination-001",
+  "encrypted_content": "<base64-encrypted>",
+  "encrypted_metadata": "<base64-encrypted>",
+  "content_hash": "<sha256 of plaintext for dedup>",
+  "contributor_id": "agent-pdsa-001",
+  "access_grants": [
+    {"agent_id": "agent-dev-002", "granted_at": "2026-02-23T15:00:00Z", "granted_by": "ks-admin"},
+    {"agent_id": "agent-qa-003", "granted_at": "2026-02-23T15:00:00Z", "granted_by": "ks-admin"}
+  ],
+
+  "access_count": 0,
+  "pheromone_weight": 1.0,
+  ...
+}
+```
+
+**New concepts:**
+- `knowledge_space_id` — groups thoughts into access-controlled spaces. A company has one knowledge space. An individual has a personal space. Invitation = sharing the space's decryption key.
+- `encrypted_content` / `encrypted_metadata` — the thought content and sensitive metadata are encrypted with the knowledge space's key.
+- `access_grants` — records which agents have been granted access (invitation tracking).
+- `content_hash` — SHA-256 of plaintext content, enables deduplication without decrypting.
+
+### Technical Challenge: Semantic Search on Encrypted Data
+
+**This is the hardest problem.** Vector similarity search requires comparing vector distances. If embeddings are encrypted, cosine similarity produces garbage.
+
+**Three approaches:**
+
+#### Approach A: Encrypt Content, Keep Embeddings in Plaintext
+- **How:** Encrypt `content` and `metadata`. Store embedding vectors unencrypted.
+- **Tradeoff:** Search works normally. But embeddings leak semantic information — an attacker can infer topics from vector proximity even without decrypting content. This is a partial solution.
+- **When appropriate:** When the threat model is "protect content from unauthorized reading" but NOT "hide what topics exist."
+
+#### Approach B: Homomorphic Encryption on Embeddings
+- **How:** Use Fully Homomorphic Encryption (FHE) to compute cosine similarity on encrypted vectors.
+- **Tradeoff:** Mathematically correct but extremely slow. Current FHE implementations add 1000-10000× overhead. A 10ms search becomes 10-100 seconds.
+- **When appropriate:** When topics themselves are sensitive AND performance is not critical.
+- **State of the art:** Microsoft SEAL, PALISADE, ZAMA's Concrete. All are research-grade for vector operations as of 2025.
+
+#### Approach C: Trusted Execution Environment (TEE)
+- **How:** Run Qdrant inside a TEE (Intel SGX, AMD SEV). Data is encrypted at rest and in transit. Decrypted only inside the secure enclave for search.
+- **Tradeoff:** Best of both worlds — full search performance, full encryption. But requires specific hardware and adds deployment complexity.
+- **When appropriate:** Production systems with strict security requirements.
+
+#### Approach D: Access-Filtered Search (Pragmatic MVP)
+- **How:** Each thought belongs to a `knowledge_space_id`. Agents present a cryptographic token (signed JWT with space_id claim) when querying. The system filters results to only include thoughts from spaces the agent has access to. Content is encrypted at rest (standard disk encryption or Qdrant's built-in encryption).
+- **Tradeoff:** Not end-to-end encrypted (the server can read plaintext during search). But prevents unauthorized agents from accessing thoughts. Combined with server-side encryption at rest, this handles most threat models.
+- **When appropriate:** Multi-tenant knowledge systems where the server is trusted but agents are not.
+
+### Recommendation
+
+**For MVP:** Approach D (Access-Filtered Search). Add `knowledge_space_id` to the payload schema now. Implement JWT-based agent authentication. Encrypt at rest via Qdrant's built-in encryption. This covers the invitation model ("you need a token to access this knowledge space") without the performance penalty of homomorphic encryption.
+
+**For future:** Evaluate Approach C (TEE) when the system handles truly sensitive data and hardware is available.
+
+**Schema changes for immediate accommodation:**
+
+Add to `thought_space` payload:
+```json
+{
+  "knowledge_space_id": "ks-default",
+  "access_grants": []
+}
+```
+
+Add to `query_log` table:
+```sql
+ALTER TABLE query_log ADD COLUMN knowledge_space_id TEXT NOT NULL DEFAULT 'ks-default';
+```
+
+Add new table for knowledge space management:
+```sql
+CREATE TABLE knowledge_spaces (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  created_by TEXT NOT NULL,
+  encryption_key_hash TEXT,  -- hash of the encryption key (key itself stored securely)
+  settings TEXT  -- JSON for space-specific configuration
+);
+
+CREATE TABLE space_memberships (
+  space_id TEXT NOT NULL REFERENCES knowledge_spaces(id),
+  agent_id TEXT NOT NULL,
+  role TEXT NOT NULL DEFAULT 'contributor',  -- 'admin', 'contributor', 'reader'
+  granted_at TEXT NOT NULL DEFAULT (datetime('now')),
+  granted_by TEXT NOT NULL,
+  PRIMARY KEY (space_id, agent_id)
+);
+```
+
+### Why "Adding Security Later Is a Completely New Project"
+
+Thomas is right. Here's what changes if security is retrofitted:
+
+| Component | Without Security | With Security |
+|-----------|-----------------|---------------|
+| Storage | Plaintext payloads | Encrypted payloads + key management |
+| Search | Direct cosine similarity | Filtered by space + possibly encrypted search |
+| API | Open endpoints | Auth middleware on every endpoint |
+| Agent integration | Send prompt, get response | Send prompt + auth token, validate, filter, respond |
+| Data model | Flat collection | Partitioned by knowledge space |
+| Deployment | Single Qdrant instance | Qdrant + auth service + key management |
+| Testing | Functional tests | Functional + security + penetration tests |
+
+Every layer changes. If the data model doesn't have `knowledge_space_id` from the start, migrating existing data requires re-indexing the entire collection. If the API doesn't have auth middleware, adding it means touching every endpoint. If testing doesn't include security scenarios, they need to be written from scratch.
+
+By adding the schema fields now (even without implementing encryption), the foundation exists for security to be a feature addition rather than an architecture replacement.
+
+---
+
+## STUDY (Iteration 10)
+
+### What I Learned
+
+1. **The conversational interface is a better architecture.** It's not just a user-experience improvement — it's a separation of concerns. Agents deal with knowledge (natural language). The system deals with operations (embed, search, reinforce, track). Neither needs to know the other's implementation details. This is the zero-knowledge pattern Thomas described.
+
+2. **Cryptographic access control is genuinely hard for vector databases.** The fundamental tension: semantic search requires comparing vectors, encryption prevents comparison. There's no elegant solution today — only tradeoffs between security level and performance. Approach D (access-filtered + at-rest encryption) is the pragmatic path.
+
+3. **Schema accommodation is cheap; retrofitting is expensive.** Adding `knowledge_space_id` and `access_grants` to the payload schema costs nothing in performance or complexity. But NOT having them when security needs arise means migrating every vector. Thomas's principle — "adding security later is a completely new project" — is validated by the component-by-component analysis.
+
+4. **The conversational endpoint changes the implementation phases.** Phase 4 (previously "Document HTTP API for agents") becomes "Build conversational layer." This is architecturally cleaner — agents never see the internal endpoints.
+
+### What Questions Remain
+
+1. **JWT vs. other credential formats.** Thomas said "cryptographic credentials, not API keys." JWT with RSA/EC signatures is one path. Client certificates (mTLS) is another. Which fits the "invitation = sharing decryption credential" model better?
+
+2. **Knowledge space granularity.** One space per company? Per team? Per project? The schema supports any granularity, but the invitation model changes based on how fine-grained spaces are.
+
+3. **How does the conversational classifier handle multi-language?** Agents may prompt in English or German. The MVP heuristic (question marks, length) is language-agnostic, but an LLM classifier would need to handle both.
+
+4. **Should pheromone weights be per-space or global?** If a thought exists in space A and space B, do they share pheromone weight? Or does each space have its own prominence landscape?
+
+---
+
+## ACT (Iteration 10)
+
+### What Changed in Iteration 9 Content
+
+1. **Sources Read table:** All 10 entries now have clickable markdown links
+2. **STUDY section:** 3 doc references now linked
+3. **Section 7:** Completely rewritten — conversational interface replaces direct HTTP/MCP/Skill options
+4. **Decisions table:** 2 rows updated (agent integration → conversational, auth → cryptographic)
+5. **Gap analysis:** Added authentication row, updated agent integration row
+6. **Phase 4:** Updated to reflect conversational interface implementation
+
+### New Content in Iteration 10
+
+7. **Security Architecture Reflection:** 4 approaches to encrypted search analyzed (plaintext embeddings, homomorphic, TEE, access-filtered). Recommendation: Approach D for MVP.
+8. **Schema Accommodation:** `knowledge_space_id`, `access_grants` added to payload spec. `knowledge_spaces` and `space_memberships` SQLite tables specified.
+9. **"Why adding security later is a new project":** Component-by-component analysis showing every layer changes.
+
+### Next Steps
+
+1. Thomas reviews the conversational interface design and security reflection
+2. If approved: create implementation tasks for DEV (Phase 1-4 with security schema from start)
+3. QA writes acceptance tests including auth scenarios
+
+---
+
+## Deliverables (Iteration 10)
+
+| File | Description |
+|------|-------------|
+| [`pdsa/2026-02-19-agent-memory.pdsa.md`](.) | This document — iteration 10 adds conversational interface + security reflection |
