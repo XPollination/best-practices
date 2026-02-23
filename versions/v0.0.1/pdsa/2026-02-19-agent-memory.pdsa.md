@@ -73,7 +73,7 @@ I read all 10 spec files. Here's what each contributes to the memory question:
 2. **Session Memory** — handoff files in `.claude/handoffs/`
 3. **Structured Knowledge** — MEMORY.md (200 lines) + topic files + CLAUDE.md
 4. **Truth Anchoring** — not implemented
-5. **Distributed Knowledge** — not implemented; best-practices API (Qdrant) exists but isn't integrated as memory
+5. **Distributed Knowledge** — not implemented; best-practices API (Qdrant) exists at `localhost:3200` but provides only basic semantic search (`/query`, `/ingest`) — no thought provenance, no access tracking, no pheromone model
 
 **The gap:** Layers 1-2 are nearly identical between spec and practice. Layer 3 is dramatically simpler in practice (markdown vs. vector+graph+git). Layers 4-5 don't exist yet.
 
@@ -163,7 +163,7 @@ Based on this research, I produced:
 
 1. **No automated consolidation.** MEMORY.md grows until a human trims it. There's no process for detecting contradictions, outdated entries, or redundancies. Galarza suggests a separate LLM for this; we have no equivalent.
 
-2. **No vector-backed retrieval for agent memory.** The best-practices API (Qdrant) exists but agents don't use it as a memory retrieval system. MEMORY.md is the only thing loaded at startup. When MEMORY.md hits its cap, knowledge is simply lost (or moved to topic files that may never be read).
+2. **No vector-backed retrieval for agent memory.** The best-practices API (Qdrant at `localhost:3200`) provides basic semantic search over embedded best-practice documents, but it lacks the features needed for agent memory: no thought provenance, no access logging, no pheromone model, no co-retrieval tracking. Agents don't use it — MEMORY.md is the only thing loaded at startup. When MEMORY.md hits its cap, knowledge is simply lost (or moved to topic files that may never be read).
 
 3. **No per-agent memory.** All agents share CLAUDE.md/MEMORY.md. There's no mechanism for one agent to remember something that only it needs. The spec envisions per-thinker nodes in the knowledge graph; our system has no equivalent.
 
@@ -181,7 +181,7 @@ Based on this research, I produced:
 
 2. **Document the PM system as a memory layer.** Task DNA is agent memory — we should acknowledge this in our architecture docs rather than treating PM and memory as separate concerns.
 
-3. **Integrate best-practices API as agent memory retrieval.** When an agent starts a task in a specific domain, it should query the Qdrant API for relevant best practices, not just rely on MEMORY.md. This bridges the gap between our simple markdown memory and the spec's vector-backed retrieval.
+3. **Extend the best-practices API into the XPollination thought tracing system.** The current API provides basic semantic search (`POST /api/v1/query`) and storage (`POST /api/v1/ingest`) with 384-dim embeddings and no access tracking. It needs new endpoints (`/think`, `/retrieve`, `/highways`), a pheromone model, access logging, co-retrieval tracking, and provenance metadata to serve as agent memory infrastructure. See iteration 9 for the general specification.
 
 **Medium-term (next iteration):**
 
