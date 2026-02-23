@@ -234,6 +234,16 @@ Why bad: No date. No reason. No trace of how this was learned. No source provena
 
 ---
 
+## Key Takeaways
+
+- **If forgetting it would cause a repeated mistake, it's a deep attractor** — persist it immediately (git protocol, role boundaries, anti-patterns with dates).
+- **If it's been confirmed only once, it's speculative** — wait for reinforcement across multiple interactions, unless the user explicitly asks you to remember it.
+- **Store conclusions in MEMORY.md, trajectories in PDSA docs, both in task metadata.** Conclusions are compact and fast to load; trajectories preserve *why* and *when to revise*.
+- **Pheromone models automate what you'd otherwise do manually.** Access reinforcement + time decay replaces the binary keep/delete decision with continuous self-regulation.
+- **The most valuable memories may be ones nobody wrote.** Co-retrieval associations — memories that are repeatedly retrieved together — reveal domain connections that no individual created (unvalidated; experiment proposed in WHERE doc).
+
+---
+
 ## Open Questions
 
 1. **How do you implement pheromone decay for markdown memory?** The theoretical bridge between "200-line cap" and "pheromone weight" exists but has no practical implementation. Could memory file entries carry access-frequency metadata? Could git blame + search logs approximate access patterns?
@@ -250,7 +260,7 @@ See also: [co-retrieval validation experiment](agent-memory-where.md#open-questi
 
 ## Related
 
-- [PDSA: Agent Memory Research](../../pdsa/2026-02-19-agent-memory.pdsa.md) — the research journey (4 iterations)
+- [PDSA: Agent Memory Research](../../pdsa/2026-02-19-agent-memory.pdsa.md) — the research journey (5 iterations)
 - [14-AGENT-CONTEXT](../../feedback/agent-memory/14-AGENT-CONTEXT.md) — consolidated XPollination vision
 - [12-DEEP-DIVE-ITER3](../../feedback/agent-memory/12-DEEP-DIVE-THINKING-INFRASTRUCTURE-ITER3.md) — Hopfield theory, pheromone model, stigmergy
 - [13-MVP-SPEC](../../feedback/agent-memory/13-MVP-SPEC-THOUGHT-TRACING.md) — buildable thought tracing spec
