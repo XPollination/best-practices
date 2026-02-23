@@ -95,7 +95,7 @@ When you want to preserve not just what was concluded but **how you got there**,
 
 These documents are trajectory memory — they preserve the path, not just the destination. The XPollination spec calls this "thought tracing" and considers it the most valuable kind of memory: "The ability to reproduce how different thinkers arrived at convergence is itself the knowledge."
 
-**In our system:** This very document (agent-memory-where.md) was produced through a 4-iteration PDSA cycle. Each iteration deepened understanding — from shallow reformatting (iter 1) to genuine insights about how our PM system functions as memory infrastructure (iter 2) to theoretical grounding in Hopfield networks and pheromone models (iter 3) to practical restructuring for standalone readability (iter 4).
+**In our system:** This very document (agent-memory-where.md) was produced through a multi-iteration PDSA cycle. Each iteration deepened understanding — from shallow reformatting (iter 1) to genuine insights about how our PM system functions as memory infrastructure (iter 2) to theoretical grounding in Hopfield networks and pheromone models (iter 3) to practical restructuring for standalone readability (iter 4).
 
 #### What a Day-1 Setup Looks Like
 
