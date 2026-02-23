@@ -3,7 +3,7 @@
 **Date:** 2026-02-19
 **Author:** PDSA Agent
 **Task:** best-practice-agent-memory
-**Status:** ACTIVE (iteration 10 — conversational interface, security architecture, spec links)
+**Status:** ACTIVE (iteration 11 — standalone spec extraction, 9 feedback items)
 
 ---
 
@@ -1493,3 +1493,74 @@ By adding the schema fields now (even without implementing encryption), the foun
 | File | Description |
 |------|-------------|
 | [`pdsa/2026-02-19-agent-memory.pdsa.md`](.) | This document — iteration 10 adds conversational interface + security reflection |
+
+---
+
+---
+
+# ITERATION 11: Standalone Spec Extraction + 9 Feedback Items
+
+**Date:** 2026-02-23
+**Rework reason:** Thomas provided detailed feedback in [`rework-feedback-iteration-10.md`](rework-feedback-iteration-10.md) with 9 specific changes. Most significant: extract the buildable spec from the PDSA into a standalone document.
+
+---
+
+## Feedback → Changes (Iteration 11)
+
+| # | Feedback | Change Made |
+|---|----------|------------|
+| 1 | Remove crypto from active spec, mark deferred | Moved to post-MVP section in standalone spec. Security reflection preserved in PDSA iteration 10 but not in buildable spec. |
+| 2 | Replace intent classifier with contribution threshold | Removed 4-way classifier. Every call retrieves. Contribution threshold: >50 chars, declarative, not follow-up. ~5 lines of code. |
+| 3 | Split response into result + trace | Response has `result` (agent needs) and `trace` (system logs). Agent can ignore trace. |
+| 4 | Define context handling explicitly | Three uses: (1) concatenate with prompt for embedding, (2) store as metadata on contributions, (3) log for trajectory analytics. |
+| 5 | Add feedback loop | Implicit MVP: follow-up contributions in same session = positive reinforcement. Explicit post-MVP: /memory/feedback endpoint. |
+| 6 | Guided intake via conversational interface | New agent onboarding ("I don't recognize you"). Disambiguation for ambiguous queries (cluster counts). Multi-turn via session_id + dialogue_state. |
+| 7 | **STRUCTURAL:** Extract buildable spec from PDSA | Created [`spec/thought-tracing-system.md`](../spec/thought-tracing-system.md) — standalone, developer-readable, no research history. PDSA remains as trajectory. |
+| 8 | Integrate PageIndex analysis | Added hybrid retrieval section: tree navigation + vector search. Tree index as background job (post-MVP). Heterogeneous retrieval routing. Co-retrieval quality signal by retrieval method. |
+| 9 | Add PageIndex MCP for PDSA docs | Documented as practical post-MVP addition. PDSA docs are exact use case for tree-navigated retrieval. |
+
+### The Key Structural Change
+
+The PDSA (this document) has 11 iterations of research trajectory — valuable for understanding WHY decisions were made, but impossible for a developer to extract buildable requirements from. The standalone spec is the **conclusion**; this PDSA is the **trajectory**. This directly implements the design decision from iteration 8: "Conclusions in standalone docs, trajectories in PDSA docs."
+
+---
+
+## STUDY (Iteration 11)
+
+### What Changed Architecturally
+
+1. **Contribution threshold replaces intent classifier.** This is cleaner — every interaction retrieves (because "retrieval patterns ARE knowledge"), and the only decision is whether the prompt is substantial enough to also store. The system is always reading AND always writing, just at different weights.
+
+2. **Context handling is the quiet revolution.** Two agents asking the same query from different contexts should get different results. By concatenating context + prompt for embedding, the same question "role separation" from a DEV context and a PDSA context produces different retrieval vectors. This is implicit personalization without a user model.
+
+3. **PageIndex adds a dimension I hadn't considered.** The vector-only retrieval model assumes all knowledge is equally well served by cosine similarity. But structured knowledge (PDSA docs, documentation, hierarchical specs) is better navigated than searched. The hybrid approach — tree for structure, vector for semantics, pheromone for popularity — is genuinely better than any one method alone.
+
+4. **The guided intake insight connects spec 08 to the implementation.** Spec 08 describes context beans and guided intake. The conversational interface IS that — disambiguation, onboarding, multi-turn clarification. It's not a separate feature; it's the conversational endpoint doing its job.
+
+### What I Now Understand vs. What Remains Ambiguous
+
+**Clear:** The full pipeline from agent prompt → contribution threshold → context concatenation → retrieval → pheromone → response formatting → guided intake. Every component has a concrete specification in the standalone doc.
+
+**Ambiguous:**
+1. How should tree index generation work concretely? One LLM call? Multiple? What prompt?
+2. How does the session follow-up detection work for implicit feedback? Pattern matching? Cosine similarity between follow-up and previous results?
+3. What happens when contribution threshold disagrees with reality? (Short declarative = important insight; long question = just a question)
+
+---
+
+## ACT (Iteration 11)
+
+### Deliverables
+
+| File | Description |
+|------|-------------|
+| [`spec/thought-tracing-system.md`](../spec/thought-tracing-system.md) | **NEW** — Standalone buildable spec. All 9 feedback items integrated. |
+| [`pdsa/2026-02-19-agent-memory.pdsa.md`](.) | This document — iteration 11 records the extraction and feedback integration |
+| [`pdsa/rework-feedback-iteration-10.md`](rework-feedback-iteration-10.md) | Thomas's feedback file (input, not output) |
+
+### Next Steps
+
+1. Thomas reviews standalone spec
+2. If approved: create implementation tasks for DEV (Phases 1-4)
+3. QA writes acceptance tests from spec
+4. PDSA reviews implementation matches spec
