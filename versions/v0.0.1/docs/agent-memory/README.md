@@ -1,6 +1,14 @@
 # Agent Memory Systems
 
-How AI agents persist knowledge across sessions — what to remember, where to store it, and when to write it.
+## Why This Matters
+
+AI agents forget everything between sessions. Each new conversation starts from zero — no knowledge of what was tried before, what worked, what failed, or what other agents learned. In multi-agent systems, this creates knowledge silos: each agent builds understanding that dies when the session ends, forcing the next agent to rediscover the same insights.
+
+The vision is self-organizing knowledge that flows between minds. Not just persistence (saving facts to a file) but a substrate where retrieval patterns ARE knowledge — the system observes how thoughts flow between agents and uses that flow to surface what matters, who contributed it, and where thinking is converging.
+
+> "The ability to reproduce how different thinkers arrived at convergence is itself the knowledge." — XPollination System Vision
+
+These documents describe the practical path from a single configuration file to that vision, grounded in 2 months of real multi-agent operations and academic research on agent memory systems.
 
 ## Quick Start
 
@@ -35,6 +43,20 @@ How AI agents persist knowledge across sessions — what to remember, where to s
 6. **Stigmergic phase transition at ρ_c ≈ 0.23.** Below this user density, individual memory dominates. Above it, shared traces outperform individual memory by 36-41%.
 
 7. **Diversity IS the noise that selects for genuine convergence.** The Hopfield IDP finding: in multi-user systems, noise (diverse perspectives) drives retrieval to the deepest energy wells (most robust knowledge).
+
+## What XPollination Contributes
+
+These best practices draw on existing research but the XPollination specification (doc 12, "Deep Dive: Thinking Infrastructure") identifies 7 genuinely novel contributions to the field:
+
+1. **Vector DB as observable, self-modifying Hopfield network** — connecting attention theory, associative memory, and knowledge management in a single formalism
+2. **Diversity as noise selecting for robust convergence** — applying the IDP Hopfield finding (noise drives to deepest energy wells) to multi-user knowledge systems
+3. **Multi-user extension of Tacheny's geometric dynamics** — inter-trajectory convergence velocity, collective attractor detection, per-user regime classification
+4. **Phase transition mapping** — quantitative guidance (ρ_c ≈ 0.23) for when to activate collective vs. individual memory features
+5. **Co-retrieval as complement to GraphRAG** — behavioral edges overlaid on semantic edges, with the gap between them revealing emergent knowledge
+6. **RL formulation of memory operations** — state/action/reward specification for learning optimal knowledge management policies
+7. **8-layer concurrent architecture** — integrating all research threads into a coherent, implementable system design
+
+**The mining metaphor:** Contributing a thought is like mining a token. The thought carries provenance (who created it). When others retrieve and build on it, value flows — like a river powering watermills downstream. The proof-of-work is not computational waste but genuine intellectual contribution, validated by actual usage. Even though the token economy is future work, the idea that intellectual contribution should be tracked and valued is central to the vision — and provenance tracking (`contributor_id` + `source_ids`) creates the foundation.
 
 ## Sources
 
