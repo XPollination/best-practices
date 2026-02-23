@@ -1,8 +1,18 @@
-# Thought Tracing System — Buildable Specification
+# Thought Tracing System — Technical Specification
 
-> **Status:** Draft (extracted from PDSA iterations 9-11)
-> **Version:** 0.1.0 | **Date:** 2026-02-23
+> **Version:** 0.2.0 | **Date:** 2026-02-23 | **Status:** Implementation-Ready
 > **PDSA:** [2026-02-19-agent-memory.pdsa.md](../pdsa/2026-02-19-agent-memory.pdsa.md)
+
+---
+
+## How to Read This Document
+
+This is a **technical blueprint** for a developer building the system. Read sections 1-10 sequentially — each builds on the previous. Section 2 defines what exists today. Sections 3-4 define what to build. Section 5 defines the data model. Sections 6-8 define runtime behavior. Section 9 defines the build order (phases with explicit dependencies). Section 10 lists related documents for background context only — everything needed to build is in this file.
+
+**Conventions:**
+- All examples show exact JSON shapes. Implement as shown.
+- `MVP` = build now (Phases 1-4). `Post-MVP` = build later (clearly labeled, skip during implementation).
+- Error responses follow a single schema defined in Section 3.1.
 
 ---
 
@@ -18,7 +28,9 @@ Transform the existing best-practices API (`localhost:3200`) from a basic semant
 
 **Agent-facing interface:** A single conversational endpoint (`POST /api/v1/memory`). Agents send natural language. The system handles everything internally.
 
-**Internal endpoints:** `/think`, `/retrieve`, `/highways` — implementation details, not agent-facing.
+**Internal endpoints:** `/think`, `/retrieve`, `/highways` — called by the `/memory` endpoint, never by agents.
+
+**Existing endpoints preserved:** `/api/v1/query`, `/api/v1/ingest`, `/api/v1/health` continue to work unchanged.
 
 ---
 
@@ -36,21 +48,43 @@ Transform the existing best-practices API (`localhost:3200`) from a basic semant
 
 **Qdrant Collections:**
 - `best_practices` (~20 chunks, seeded from markdown)
-- `queries` (search query embeddings for analytics — to be deprecated, replaced by SQLite)
+- `queries` (deprecated — replaced by SQLite `query_log` in this spec)
 
 **Not present:** No provenance, no access logging, no pheromone, no co-retrieval, no agent integration, no background jobs.
-
-**Existing endpoints are preserved.** All new functionality is additive.
 
 ---
 
 ## 3. Agent-Facing Interface: `POST /api/v1/memory`
 
-### Design Principle
+### 3.1 Error Response Schema
+
+All endpoints use this error format:
+
+```json
+{
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "message": "prompt is required and must be a non-empty string"
+  }
+}
+```
+
+| HTTP Status | Code | When |
+|-------------|------|------|
+| 400 | `VALIDATION_ERROR` | Missing required fields, invalid types, empty strings |
+| 400 | `INVALID_THOUGHT_TYPE` | `thought_type` not in `["original", "refinement", "consolidation"]` |
+| 400 | `MISSING_SOURCE_IDS` | `thought_type` is `refinement` or `consolidation` but `source_ids` is empty |
+| 404 | `THOUGHT_NOT_FOUND` | Referenced `thought_id` or `source_id` does not exist in `thought_space` |
+| 404 | `SESSION_NOT_FOUND` | `session_id` provided but not found in `query_log` |
+| 500 | `EMBEDDING_FAILED` | Embedding model returned an error |
+| 500 | `QDRANT_ERROR` | Qdrant connection or query failed |
+| 500 | `INTERNAL_ERROR` | Unexpected server error |
+
+### 3.2 Design Principle
 
 Agents talk to memory like talking to a brain. They don't know about /think, /retrieve, or /highways. They send a prompt and get a response. The system decides what to do internally.
 
-### Request
+### 3.3 Request
 
 ```json
 {
@@ -62,49 +96,55 @@ Agents talk to memory like talking to a brain. They don't know about /think, /re
 }
 ```
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `prompt` | string | Yes | Natural language — question, insight, reflection, anything |
-| `agent_id` | string | Yes | Who is talking |
-| `agent_name` | string | Yes | Human-readable name |
-| `context` | string | No | What the agent is currently working on. Changes retrieval direction. |
-| `session_id` | string | No | Continue a previous session (for feedback loop) |
+| Field | Type | Required | Validation | Description |
+|-------|------|----------|------------|-------------|
+| `prompt` | string | Yes | Non-empty, max 10000 chars | Natural language — question, insight, reflection, anything |
+| `agent_id` | string | Yes | Non-empty, max 100 chars | Who is talking (e.g. `"agent-dev-002"`) |
+| `agent_name` | string | Yes | Non-empty, max 200 chars | Human-readable name (e.g. `"DEV Agent"`) |
+| `context` | string | No | Max 2000 chars | What the agent is currently working on. Changes retrieval direction. |
+| `session_id` | string | No | UUID format | Continue a previous session (for feedback loop and multi-turn) |
 
-### Every Call Retrieves
+### 3.4 Every Call Retrieves
 
-There is no intent classifier. Every call to `/memory` triggers retrieval. The question is only whether the prompt ALSO gets stored as a thought.
+There is no intent classifier. Every call to `/memory` triggers retrieval. The only question is whether the prompt ALSO gets stored as a thought.
 
-**Contribution threshold:** The prompt is stored as a thought if:
-- Length > 50 characters AND
-- Contains declarative content (not purely interrogative) AND
-- Isn't a follow-up reference ("Based on what you told me...")
+### 3.5 Contribution Threshold
 
-This is a simple heuristic. Not a classifier. Not an LLM decision. A few lines of code.
+The prompt is stored as a thought when ALL of the following are true:
 
-### Context Handling
+1. **Length:** `prompt.length > 50`
+2. **Not purely interrogative:** Prompt does NOT match pattern `^[^.!]*\?$` (single sentence ending in `?` with no periods or exclamation marks before it)
+3. **Not a follow-up reference:** Prompt does NOT start with (case-insensitive): `"based on"`, `"you said"`, `"you told me"`, `"regarding your"`, `"about your response"`
 
-The `context` field is not decoration — it's the most valuable input for the pheromone model:
+Implementation: three checks, ~10 lines of code. No LLM, no classifier.
 
-| Use | How |
-|-----|-----|
-| **Embedding** | Concatenate `context + prompt` before embedding. Context provides direction, prompt provides specificity. Two agents asking "role separation" from different contexts get different results. |
-| **Storage** | If prompt is stored as a thought, context becomes metadata (not embedded content). Preserved for provenance. |
-| **Analytics** | Context + prompt pairs in query_log enable trajectory analysis. |
+When the threshold is met, the prompt is stored via the internal `/think` endpoint with `thought_type: "original"`. Tags are extracted from the prompt by splitting on common topic indicators (see Section 3.8).
 
-### Response: Result + Trace
+When the threshold is NOT met, the prompt is used only for retrieval. It still appears in `query_log`.
 
-Two clean sections for two audiences:
+### 3.6 Context Handling
+
+The `context` field modifies behavior in three concrete ways:
+
+| Use | Implementation |
+|-----|---------------|
+| **Embedding** | If `context` is provided, embed `context + " " + prompt` (concatenated string). If absent, embed `prompt` alone. This means two agents asking "role separation" from different contexts get different retrieval results. |
+| **Storage** | If prompt is stored as a thought, `context` is saved in `context_metadata` field (NOT embedded — stored as provenance metadata). |
+| **Analytics** | Both `context` and `prompt` are written to `query_log` for trajectory analysis. |
+
+### 3.7 Response: Result + Trace
 
 ```json
 {
   "result": {
     "response": "Based on collective knowledge, role boundaries prevent coordination collapse...",
     "sources": [
-      {"thought_id": "uuid-1", "contributor": "PDSA Agent", "score": 0.87},
-      {"thought_id": "uuid-3", "contributor": "QA Agent", "score": 0.72}
+      {"thought_id": "uuid-1", "contributor": "PDSA Agent", "score": 0.87, "content_preview": "Role boundaries prevent..."},
+      {"thought_id": "uuid-3", "contributor": "QA Agent", "score": 0.72, "content_preview": "Testing requires..."}
     ],
     "highways_nearby": ["role-separation (12 accesses, 4 agents)"],
-    "disambiguation": null
+    "disambiguation": null,
+    "guidance": null
   },
   "trace": {
     "session_id": "session-uuid",
@@ -118,32 +158,70 @@ Two clean sections for two audiences:
 }
 ```
 
-- **`result`** — what the agent needs. Natural language response + sources for provenance.
-- **`trace`** — what the system logs. Operations performed, counts, reasoning path. Agent can ignore. Monitoring reads both. Future-proofs for pheromone visualization.
+| Field | Location | Description |
+|-------|----------|-------------|
+| `result.response` | Agent reads this | Natural language summary of retrieved thoughts. For MVP: concatenate top-3 `content` fields with attribution. |
+| `result.sources` | Agent reads this | Array of retrieved thoughts with IDs, contributors, scores, and first 80 chars of content. |
+| `result.highways_nearby` | Agent reads this | Strings describing high-traffic thoughts related to the query. Empty array if none. |
+| `result.disambiguation` | Agent reads this | Non-null when query is ambiguous (see Section 3.8). |
+| `result.guidance` | Agent reads this | Non-null for new agents (see Section 3.9). Null otherwise. |
+| `trace.session_id` | System logs this | UUID. Generated if not provided in request. Used for feedback loop. |
+| `trace.operations` | System logs this | List of operations performed: `"retrieve"`, `"reinforce"`, `"contribute"`, `"disambiguate"`, `"onboard"`. |
+| `trace.thoughts_retrieved` | System logs this | Count of thoughts returned. |
+| `trace.thoughts_contributed` | System logs this | 0 or 1. |
+| `trace.contribution_threshold_met` | System logs this | Boolean. |
+| `trace.context_used` | System logs this | Boolean — whether context field was provided. |
+| `trace.retrieval_method` | System logs this | `"vector"` for MVP. Future: `"tree"`, `"hybrid"`. |
 
-### Guided Intake
+### 3.8 Disambiguation
 
-The conversational interface IS the guided intake from [spec 08](08-MULTI-AGENT-ACCESS-LAYER.md).
+When retrieval returns 10+ results AND the results span 3+ distinct tag values:
 
-**New agent onboarding:**
-- System detects `agent_id` not in any `space_memberships`
-- Returns in `result.response`: "I don't recognize you yet. What knowledge space are you working in?"
-- This IS onboarding. No documentation needed.
+1. Group results by `tags` field values
+2. Count results per tag
+3. Set `result.disambiguation`:
 
-**Ambiguous queries:**
-- Agent sends: "stuff about architecture"
-- `result.disambiguation`: `{"found": 23, "clusters": [{"tag": "system-architecture", "count": 12}, {"tag": "org-architecture", "count": 6}, {"tag": "data-architecture", "count": 3}, {"tag": "security-architecture", "count": 2}]}`
-- `result.response`: "I found 23 thoughts about architecture across 4 areas: system-architecture (12), org-architecture (6), data-architecture (3), security-architecture (2). Which area?"
+```json
+{
+  "total_found": 23,
+  "clusters": [
+    {"tag": "system-architecture", "count": 12},
+    {"tag": "org-architecture", "count": 6},
+    {"tag": "data-architecture", "count": 3},
+    {"tag": "security-architecture", "count": 2}
+  ]
+}
+```
 
-**Multi-turn via dialogue_state:**
-- `session_id` enables continuation. Agent follows up: "system architecture" → system filters to that cluster.
-- MVP: return results with disambiguation notes. Agent sends clarified prompt in next call with same `session_id`.
+4. Set `result.response` to: `"I found {total} thoughts across {n} areas: {tag1} ({count1}), {tag2} ({count2}), ... Which area interests you?"`
+5. Return top-5 results from the largest cluster as `result.sources` (agent still gets useful results)
 
-### Feedback Loop
+When the agent follows up with `session_id` and a clarifying prompt (e.g., "system architecture"), filter retrieval to thoughts tagged with the selected tag.
 
-**Implicit MVP:** If an agent sends a follow-up prompt referencing a session ("Based on what you told me, I built X and it worked"), system infers positive reinforcement for previously retrieved thoughts in that session. No explicit feedback API — follow-up contributions ARE implicit confirmation.
+**Tag extraction for new thoughts:** When storing a thought, extract tags by:
+1. Match prompt against existing tag values in `thought_space` (case-insensitive substring match)
+2. If no matches, store with empty tags array — tags accumulate organically as the collection grows
 
-**Explicit (post-MVP):** `POST /api/v1/memory/feedback`
+### 3.9 Guided Intake: New Agent Onboarding
+
+When `agent_id` has zero entries in `query_log`:
+
+1. Set `result.guidance` to: `"Welcome! I haven't seen you before. I'll track your interests as you interact. Ask me anything or share what you're learning."`
+2. Still perform normal retrieval (return results as usual)
+3. Log the onboarding event in `trace.operations` as `"onboard"`
+
+This is NOT a blocker. The agent gets results AND a welcome message. After the first interaction, `guidance` is null for all subsequent calls.
+
+### 3.10 Feedback Loop
+
+**Implicit (MVP):** When a prompt is stored as a thought (contribution threshold met) AND `session_id` matches a previous query:
+1. Look up `returned_ids` from the matching `query_log` entry
+2. Apply bonus reinforcement to those thoughts: `pheromone_weight += 0.02` (half of normal retrieval reinforcement)
+3. Log `"feedback_implicit"` in `trace.operations`
+
+This means: "I contributed something after you showed me these thoughts" = implicit signal that those thoughts were useful.
+
+**Explicit (post-MVP):** `POST /api/v1/memory/feedback` — not built in MVP. Documented here for schema planning only:
 ```json
 {
   "session_id": "session-uuid",
@@ -151,16 +229,16 @@ The conversational interface IS the guided intake from [spec 08](08-MULTI-AGENT-
   "signal": "useful"
 }
 ```
-Useful thoughts get bonus reinforcement. Irrelevant get dampened. Beginning of RL policy ([layer 7](../feedback/agent-memory/12-DEEP-DIVE-THINKING-INFRASTRUCTURE-ITER3.md)).
 
 ---
 
 ## 4. Internal Endpoints
 
-These are implementation details. Agents never call them directly. The `/memory` endpoint calls them internally.
+These are called by the `/memory` endpoint. Agents never call them directly. They are implemented as internal functions, not necessarily as HTTP routes — the developer may implement them as functions called within the `/memory` handler. If implemented as routes, they should NOT be documented or exposed in any API docs.
 
-### `POST /api/v1/think` — Store a Thought (Internal)
+### 4.1 `think(params)` — Store a Thought
 
+**Input:**
 ```json
 {
   "content": "Role boundaries prevent coordination collapse.",
@@ -173,55 +251,110 @@ These are implementation details. Agents never call them directly. The `/memory`
 }
 ```
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `content` | string | Yes | The thought in clear language |
-| `contributor_id` | string | Yes | Who contributed |
-| `contributor_name` | string | Yes | Human-readable name |
-| `thought_type` | enum | Yes | `"original"`, `"refinement"` (requires source_ids), `"consolidation"` (requires source_ids) |
-| `source_ids` | UUID[] | Conditional | Parent thoughts for refinements/consolidations |
-| `tags` | string[] | No | Topic tags |
-| `context_metadata` | string | No | What the agent was working on (not embedded, stored for provenance) |
+| Field | Type | Required | Validation | Description |
+|-------|------|----------|------------|-------------|
+| `content` | string | Yes | Non-empty, max 10000 chars | The thought in clear language |
+| `contributor_id` | string | Yes | Non-empty | Who contributed |
+| `contributor_name` | string | Yes | Non-empty | Human-readable name |
+| `thought_type` | enum | Yes | One of: `"original"`, `"refinement"`, `"consolidation"` | Type of thought |
+| `source_ids` | UUID[] | Yes | Non-empty if type is `refinement` or `consolidation` | Parent thoughts |
+| `tags` | string[] | Yes | Array (may be empty) | Topic tags |
+| `context_metadata` | string | No | Max 2000 chars | Provenance — not embedded |
 
-**Returns:** `{ thought_id, pheromone_weight: 1.0 }`
+**Behavior:**
+1. Embed `content` using all-MiniLM-L6-v2
+2. Generate UUID for the thought
+3. Upsert to `thought_space` collection with full payload (see Section 5.1)
+4. Return `{ thought_id: "uuid", pheromone_weight: 1.0 }`
 
-### `POST /api/v1/retrieve` — Search + Reinforce (Internal)
+**Errors:** 400 if validation fails. 500 if embedding or Qdrant fails. Use error codes from Section 3.1.
 
+### 4.2 `retrieve(params)` — Search + Reinforce
+
+**Input:**
 ```json
 {
-  "query_embedding": [0.1, 0.2, ...],
+  "query_embedding": [0.1, 0.2, "... 384 floats"],
   "agent_id": "agent-dev-002",
+  "session_id": "session-uuid",
   "limit": 10,
-  "exclude_self": false,
-  "min_score": 0.0,
   "filter_tags": []
 }
 ```
 
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `query_embedding` | float[] | Yes | — | 384-dim embedding vector |
+| `agent_id` | string | Yes | — | Who is retrieving |
+| `session_id` | string | Yes | — | Session UUID for logging |
+| `limit` | integer | No | 10 | Max results (range 1-50) |
+| `filter_tags` | string[] | No | `[]` | Filter to thoughts with any of these tags. Empty = no filter. |
+
 **Behavior (every call):**
-1. Search `thought_space` by cosine similarity
-2. For each result:
+1. Search `thought_space` by cosine similarity (top `limit` results, min score 0.0)
+2. For each returned result:
    - `access_count += 1`
    - `pheromone_weight = min(10.0, pheromone_weight + 0.05)`
    - `last_accessed = now()`
-   - Append agent_id to `accessed_by`
-   - Append `{user_id, timestamp, session_id}` to `access_log` (cap 100)
-   - Update `co_retrieved_with` for all result pairs (cap 50)
-3. Log to SQLite `query_log`
+   - Append `agent_id` to `accessed_by` (deduplicated)
+   - Append `{"user_id": agent_id, "timestamp": now(), "session_id": session_id}` to `access_log` (cap at 100 entries — remove oldest when full)
+3. Update `co_retrieved_with` for ALL pairs in the result set:
+   - For thoughts A and B both in results: increment co-retrieval count for the pair
+   - Cap at 50 entries per thought — remove lowest-count pair when full
+4. Insert row into SQLite `query_log`
+5. Return array of results with `thought_id`, `content`, `contributor_name`, `score`, `pheromone_weight`, `tags`
 
-### `GET /api/v1/highways` — Emerging Patterns (Internal)
+**Errors:** 500 if Qdrant fails. Use error codes from Section 3.1.
 
-Query params: `min_access` (default 3), `min_users` (default 2), `limit` (default 20), `sort_by` (`"traffic"`, `"pheromone"`, `"recent"`)
+### 4.3 `highways(params)` — Emerging Patterns
 
-**Returns:** Thoughts sorted by traffic_score (access_count × unique_users).
+**Input (query params if implemented as route):**
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `min_access` | integer | 3 | Minimum access_count |
+| `min_users` | integer | 2 | Minimum unique users in accessed_by |
+| `limit` | integer | 20 | Max results (range 1-100) |
+
+**Behavior:**
+1. Scroll `thought_space` collection with filter: `access_count >= min_access`
+2. Post-filter: `accessed_by.length >= min_users`
+3. Sort by `traffic_score = access_count * accessed_by.length` (descending)
+4. Return top `limit` results
+
+**Returns:**
+```json
+[
+  {
+    "thought_id": "uuid",
+    "content_preview": "First 80 chars of thought...",
+    "access_count": 15,
+    "unique_users": 4,
+    "traffic_score": 60,
+    "pheromone_weight": 3.2,
+    "tags": ["role-separation"]
+  }
+]
+```
+
+**Errors:** 500 if Qdrant fails. Use error codes from Section 3.1.
 
 ---
 
 ## 5. Data Model
 
-### Qdrant Collection: `thought_space`
+### 5.1 Qdrant Collection: `thought_space`
 
-**Vector:** 384-dim (all-MiniLM-L6-v2) — keep current model for MVP
+**Vector:** 384-dim, cosine distance, using `all-MiniLM-L6-v2`
+
+**Collection creation params:**
+```json
+{
+  "vectors": { "size": 384, "distance": "Cosine" },
+  "optimizers_config": { "default_segment_number": 2 },
+  "replication_factor": 1
+}
+```
 
 **Payload per point:**
 ```json
@@ -246,37 +379,38 @@ Query params: `min_access` (default 3), `min_users` (default 2), `limit` (defaul
 }
 ```
 
-**Payload indexes:**
+**Payload indexes (create after collection):**
+
 | Field | Index Type | Purpose |
 |-------|-----------|---------|
-| `contributor_id` | KEYWORD | Filter by contributor |
-| `created_at` | DATETIME | Time-range queries |
-| `access_count` | INTEGER | Highway detection |
-| `last_accessed` | DATETIME | Decay job efficiency |
-| `thought_type` | KEYWORD | Filter by type |
-| `tags` | KEYWORD | Tag-based filtering |
-| `pheromone_weight` | FLOAT | Sort by prominence |
-| `knowledge_space_id` | KEYWORD | Multi-space filtering |
+| `contributor_id` | keyword | Filter by contributor |
+| `created_at` | datetime | Time-range queries |
+| `access_count` | integer | Highway detection filter |
+| `last_accessed` | datetime | Decay job efficiency |
+| `thought_type` | keyword | Filter by type |
+| `tags` | keyword | Tag-based filtering + disambiguation |
+| `pheromone_weight` | float | Sort by prominence |
+| `knowledge_space_id` | keyword | Multi-space filtering (post-MVP) |
 
-### SQLite Tables
+### 5.2 SQLite Tables
 
 ```sql
-CREATE TABLE query_log (
+CREATE TABLE IF NOT EXISTS query_log (
   id TEXT PRIMARY KEY,
   agent_id TEXT NOT NULL,
   query_text TEXT NOT NULL,
   context_text TEXT,
   query_vector BLOB,
-  returned_ids TEXT NOT NULL,  -- JSON array of thought UUIDs
+  returned_ids TEXT NOT NULL DEFAULT '[]',  -- JSON array of thought UUIDs
   session_id TEXT NOT NULL,
   timestamp TEXT NOT NULL DEFAULT (datetime('now')),
-  result_count INTEGER NOT NULL,
+  result_count INTEGER NOT NULL DEFAULT 0,
   knowledge_space_id TEXT NOT NULL DEFAULT 'ks-default'
 );
 
-CREATE INDEX idx_query_log_agent ON query_log(agent_id);
-CREATE INDEX idx_query_log_session ON query_log(session_id);
-CREATE INDEX idx_query_log_timestamp ON query_log(timestamp);
+CREATE INDEX IF NOT EXISTS idx_query_log_agent ON query_log(agent_id);
+CREATE INDEX IF NOT EXISTS idx_query_log_session ON query_log(session_id);
+CREATE INDEX IF NOT EXISTS idx_query_log_timestamp ON query_log(timestamp);
 ```
 
 ---
@@ -287,168 +421,141 @@ CREATE INDEX idx_query_log_timestamp ON query_log(timestamp);
 |-----------|-------|-----------|
 | Initial weight | 1.0 | Neutral starting point |
 | Reinforcement per access | +0.05 | Small enough that single access doesn't dominate |
-| Ceiling | 10.0 | Max 10× baseline prominence |
+| Implicit feedback bonus | +0.02 | Half of retrieval reinforcement — weaker signal |
+| Ceiling | 10.0 | Max 10x baseline prominence |
 | Decay rate | 0.995 per hour | ~11% per day, ~50% per week, floor in ~1 month |
 | Floor | 0.1 | Never fully invisible |
 
-**Reinforcement:** On every `/retrieve` call: `weight = min(10.0, weight + 0.05)`
+**Reinforcement (in retrieve):** `weight = min(10.0, weight + 0.05)` — applied to every thought returned by a retrieval call.
 
-**Decay:** Hourly background job: `weight = max(0.1, weight * 0.995)` for all vectors not accessed in last hour.
+**Implicit feedback (in /memory):** `weight = min(10.0, weight + 0.02)` — applied when a contribution references a previous session (see Section 3.10).
 
-**Feedback bonus (post-MVP):** Implicit positive signal from follow-up contributions in same session. Explicit signal from `/memory/feedback` endpoint.
+**Decay (background job):** `weight = max(0.1, weight * 0.995)` — applied hourly to all thoughts where `last_accessed` is older than 1 hour.
 
 ---
 
-## 7. Retrieval Strategy: Hybrid Approach
+## 7. Retrieval Strategy
 
-### Current: Vector Search Only
+### MVP: Vector Search Only
 
-Embed query → cosine similarity → return top-N. Simple, works for small collections.
+For MVP, all retrieval uses cosine similarity search against `thought_space`. This is sufficient for collections under 500 thoughts.
 
-### Future: Hybrid Tree Navigation + Vector Search (PageIndex-Informed)
+**Retrieval flow (MVP):**
+1. Embed query (with context if provided) using all-MiniLM-L6-v2
+2. Search `thought_space` by cosine similarity
+3. Apply tag filter if `filter_tags` is non-empty
+4. Apply pheromone reinforcement to results
+5. Return results sorted by score
 
-When `thought_space` reaches 50+ thoughts, a richer retrieval strategy becomes valuable. Inspired by [PageIndex](https://github.com/VectifyAI/PageIndex) (vectorless, reasoning-based RAG):
+### Post-MVP: Hybrid Tree Navigation + Vector Search
 
-**Tree index over thought_space:**
-- Auto-generated hierarchical topic tree (JSON) as background job
-- Organized by: topic hierarchy → contributor → thought_type → time
-- Updated periodically (every 100 new thoughts or daily)
+When `thought_space` exceeds 500 thoughts, hybrid retrieval becomes valuable. This section is for future reference only — do not build during MVP.
 
-**Hybrid retrieval flow:**
-1. LLM reasons over tree structure → identifies relevant branches
-2. Vector search within selected branches → finds specific thoughts
-3. Pheromone weighting modifies results within branch
-4. Returns results with full navigation trace
+**Tree index:** Auto-generated hierarchical topic tree (JSON) as background job. Updated daily or every 100 new thoughts.
 
-**Why this matters:**
-- Tree-navigated co-retrieval = high signal (LLM actively decided both thoughts relevant)
-- Vector-only co-retrieval = potentially noise (embedding proximity)
-- System can weight co-retrieval edges differently by retrieval method
-- Retrieval path IS thinking — connects to "reproduce how thinkers arrived at convergence"
+**Hybrid flow:** LLM reasons over tree → identifies branches → vector search within branches → pheromone weighting → results with navigation trace.
 
-**Heterogeneous retrieval routing (future):**
-- Some knowledge best found by vector similarity (unexpected connections)
-- Some by tree navigation (structured domain answers)
-- Some by pheromone prominence (collectively validated)
-- Conversational endpoint routes to different strategies, not just different internal endpoints
-
-**For MVP:** Vector search only. Add tree index generation as background job when collection exceeds 50 thoughts. Full hybrid retrieval is post-MVP.
-
-### Practical Addition: PageIndex MCP for PDSA Documents
-
-PDSA documents are the exact use case for PageIndex — long, structured, hierarchical. Instead of chunking and embedding them:
-- Use PageIndex MCP integration to index PDSA docs
-- Agents query via tree navigation: "What did we learn about pheromone decay in iteration 3?"
-- More accurate than embedding-based retrieval for structured documents
-
-This is a separate, practical addition that doesn't depend on the thought_space system.
+**Heterogeneous routing:** Different queries route to different retrieval strategies (vector for unexpected connections, tree for structured domain answers, pheromone for collectively validated knowledge).
 
 ---
 
 ## 8. Background Jobs
 
-| Job | Schedule | What It Does |
-|-----|----------|-------------|
-| Pheromone decay | Every hour | `weight *= 0.995` for all vectors not accessed in last hour. Floor 0.1. |
-| Highway detection | Every 15 min | Scan for access_count >= 3 and unique_users >= 2. (Can compute on-demand for MVP.) |
-| Tree index generation | On threshold (50+ thoughts) or daily | Generate hierarchical topic tree from thought_space. Store as JSON. (Post-MVP.) |
+| Job | Schedule | Implementation | Phase |
+|-----|----------|---------------|-------|
+| Pheromone decay | Every 60 minutes | `setInterval` in Fastify. Scroll all `thought_space` points where `last_accessed < (now - 1 hour)`. Update `pheromone_weight = max(0.1, weight * 0.995)`. | Phase 2 |
+| Highway detection | On-demand | Computed when `/memory` response includes `highways_nearby`. No background job needed for MVP — query at response time with `access_count >= 3 AND accessed_by.length >= 2`. | Phase 4 |
 
-**MVP implementation:** `setInterval` in Fastify process. Sufficient for single-instance deployment on CX22.
-
----
-
-## 9. Gap Analysis
-
-| Capability | Current | Target | Gap |
-|-----------|---------|--------|-----|
-| Semantic search | ✅ `/query` | ✅ `/retrieve` (internal) | New internal endpoint |
-| Content storage | ✅ `/ingest` | ✅ `/think` (internal) | New internal endpoint with provenance |
-| Agent interface | ❌ None | ✅ `POST /memory` (conversational) | Conversational layer + contribution threshold |
-| Access tracking | ❌ None | ✅ access_count, accessed_by, access_log | Middleware on /retrieve |
-| Pheromone model | ❌ None | ✅ +0.05 reinforce, 0.995/hr decay | On /retrieve + hourly job |
-| Co-retrieval | ❌ None | ✅ co_retrieved_with | Logic in /retrieve |
-| Highway detection | ❌ None | ✅ /highways (internal) | New internal endpoint |
-| Background jobs | ❌ None | ✅ Decay + detection | setInterval |
-| Thought types | ❌ None | ✅ original/refinement/consolidation | Schema field |
-| Source linking | ❌ None | ✅ source_ids | Schema field |
-| Context handling | ❌ None | ✅ Concatenation + metadata + analytics | In /memory endpoint |
-| Feedback loop | ❌ None | ✅ Implicit (MVP) + explicit (post-MVP) | Session follow-up detection |
-| Guided intake | ❌ None | ✅ Onboarding + disambiguation + dialogue_state | In /memory endpoint |
-| Query logging | ✅ Qdrant collection | ✅ SQLite table | Migrate |
-| Existing endpoints | ✅ /query, /ingest | ✅ Preserved | No change |
-| Tree index | ❌ None | ✅ Auto-generated topic tree (post-MVP) | Background job |
-| Hybrid retrieval | ❌ None | ✅ Tree nav + vector (post-MVP) | PageIndex integration |
+**Implementation:** Use `setInterval` in the Fastify process. No external scheduler needed. Sufficient for single-instance deployment on CX22.
 
 ---
 
-## 10. Implementation Phases
+## 9. Implementation Phases
 
 ### Phase 1: Foundation (Week 1)
 
-1. Create `thought_space` Qdrant collection (384-dim, cosine, payload indexes)
-2. Implement internal `POST /think` endpoint
-3. Implement internal `POST /retrieve` endpoint (basic — no access tracking yet)
-4. Add SQLite `query_log` table
-5. Keep existing endpoints working
+**Depends on:** Nothing. Start here.
 
-**Test:** Store a thought via /think, retrieve it via /retrieve.
+**Build:**
+1. Create `thought_space` Qdrant collection with payload indexes (Section 5.1)
+2. Create SQLite `query_log` table (Section 5.2)
+3. Implement `think()` function (Section 4.1) — embed content, upsert to Qdrant
+4. Implement `retrieve()` function (Section 4.2) — search by cosine, return results. Skip access tracking and pheromone for now.
+5. Verify existing `/query`, `/ingest`, `/health` endpoints still work
+
+**Acceptance test:** Call `think()` with a thought → call `retrieve()` with a related query → thought appears in results.
 
 ### Phase 2: Tracing + Pheromone (Week 2)
 
-1. Add access tracking to /retrieve (access_count, accessed_by, access_log, co_retrieved_with)
-2. Add pheromone reinforcement (+0.05, cap 10.0)
-3. Implement hourly decay job (0.995, floor 0.1)
-4. Session ID generation
+**Depends on:** Phase 1 (think and retrieve must exist).
 
-**Test:** Retrieve same thought 5× → access_count=5, weight=1.25. Wait 24h → weight decayed ~11%.
+**Build:**
+1. Add access tracking to `retrieve()`: increment `access_count`, update `accessed_by`, append to `access_log` (cap 100), update `last_accessed`
+2. Add co-retrieval tracking: update `co_retrieved_with` for all result pairs (cap 50)
+3. Add pheromone reinforcement to `retrieve()`: `weight = min(10.0, weight + 0.05)`
+4. Implement pheromone decay job: `setInterval(decay, 60 * 60 * 1000)` — scroll and update
+5. Add session ID generation: `crypto.randomUUID()`
+6. Write retrieval results to `query_log`
+
+**Acceptance test:** Retrieve the same thought 5 times → `access_count` is 5, `pheromone_weight` is 1.25. Run decay job → weight decreases.
 
 ### Phase 3: Conversational Interface (Week 3)
 
-1. Implement `POST /api/v1/memory` endpoint
-   - Contribution threshold (>50 chars, declarative, not follow-up)
-   - Context concatenation for embedding
-   - Response formatting (result + trace)
-2. Guided intake (disambiguation for ambiguous queries)
-3. Implicit feedback loop (session follow-up detection)
+**Depends on:** Phase 2 (access tracking and pheromone must work).
 
-**Test:** Agent sends question → gets response with sources. Agent sends insight → gets stored + related thoughts returned.
+**Build:**
+1. Implement `POST /api/v1/memory` route (Section 3)
+2. Implement contribution threshold (Section 3.5) — three checks
+3. Implement context concatenation for embedding (Section 3.6)
+4. Implement response formatting — `result` + `trace` (Section 3.7)
+5. Implement disambiguation (Section 3.8) — tag grouping when 10+ results, 3+ tags
+6. Implement new agent detection (Section 3.9) — check `query_log` for `agent_id`
+7. Implement implicit feedback (Section 3.10) — bonus reinforcement on session follow-ups
+8. Implement error responses (Section 3.1)
+
+**Acceptance test:** Agent sends question → gets `result` with sources + `trace`. Agent sends insight (>50 chars, declarative) → thought is stored AND related thoughts returned. New agent gets welcome guidance.
 
 ### Phase 4: Visibility + Polish (Week 4)
 
-1. Implement internal `GET /highways`
-2. Surface highways in `/memory` response (highways_nearby field)
-3. Test with real agents: PDSA contributes → DEV retrieves
-4. Document the system (this spec + API examples)
+**Depends on:** Phase 3 (conversational interface must work).
 
-**Test:** After multi-agent usage, /highways returns most-trafficked thoughts.
+**Build:**
+1. Implement `highways()` function (Section 4.3)
+2. Wire highways into `/memory` response: query highways on each call, populate `result.highways_nearby` with formatted strings
+3. Tag extraction for stored thoughts (Section 3.8 — match against existing tags)
+4. End-to-end test: PDSA agent contributes a thought → DEV agent retrieves it → highway forms after repeated access
 
-### Post-MVP
+**Acceptance test:** After 10+ multi-agent interactions, `highways_nearby` returns the most-trafficked thoughts.
 
-- Explicit feedback endpoint
-- Tree index generation (PageIndex-informed)
-- Hybrid retrieval (tree nav + vector + pheromone)
+### Post-MVP (Not Part of This Build)
+
+- Explicit feedback endpoint (`POST /api/v1/memory/feedback`)
+- Tree index generation (PageIndex-informed background job)
+- Hybrid retrieval (tree navigation + vector + pheromone)
 - PageIndex MCP for PDSA document retrieval
-- Cryptographic access control (see [security reflection](../pdsa/2026-02-19-agent-memory.pdsa.md#item-3-security-architecture-reflection--cryptographic-access-control))
+- Cryptographic access control (see [security reflection in PDSA](../pdsa/2026-02-19-agent-memory.pdsa.md))
 
 ---
 
-## 11. Decisions (for Thomas to Confirm)
+## 10. Decisions Made
 
-| Decision | Rationale | Alternative |
-|----------|-----------|-------------|
-| Keep 384-dim MiniLM for MVP | Already deployed, sufficient quality, low RAM | Upgrade to BGE-M3 1024-dim |
-| Stay with Fastify/TypeScript | Existing codebase | Rewrite in FastAPI/Python |
-| Separate collections (best_practices + thought_space) | Different access patterns | Single collection |
-| SQLite for query_log | Cheaper for analytics | Keep Qdrant queries collection |
-| Conversational interface (POST /memory) | Zero-knowledge pattern for agents | Direct API |
-| Contribution threshold (heuristic) | Simple, ~5 lines of code | LLM-based classifier |
-| Implicit feedback loop for MVP | No extra endpoint needed | Explicit feedback from start |
-| Vector search only for MVP | Sufficient for small collections | Hybrid from start |
-| Crypto deferred to post-MVP | Focus on core functionality first | Security from start |
+| Decision | Chosen | Rationale |
+|----------|--------|-----------|
+| Embedding model | 384-dim all-MiniLM-L6-v2 | Already deployed, sufficient quality, low RAM |
+| Runtime | Fastify + TypeScript | Existing codebase, no rewrite needed |
+| Collections | Separate `best_practices` + `thought_space` | Different access patterns, backward compatible |
+| Query logging | SQLite `query_log` | Structured analytics, cheaper than Qdrant |
+| Agent interface | Conversational `POST /memory` | Agents don't need API knowledge |
+| Store decision | Heuristic contribution threshold | 10 lines of code, no LLM dependency |
+| Feedback loop | Implicit via session follow-ups (MVP) | No extra endpoint, naturally emerges from usage |
+| Retrieval strategy | Vector search only (MVP) | Sufficient for <500 thoughts |
+| Security | Deferred to post-MVP | Focus on core functionality first |
 
 ---
 
-## 12. Related Documents
+## 11. Related Documents
+
+Background context only. Everything needed to build is in this file.
 
 - [PDSA: Agent Memory Research](../pdsa/2026-02-19-agent-memory.pdsa.md) — research trajectory (11 iterations)
 - [Rework Feedback](../pdsa/rework-feedback-iteration-10.md) — Thomas's iteration 10 feedback with PageIndex analysis
@@ -457,6 +564,3 @@ This is a separate, practical addition that doesn't depend on the thought_space 
 - [04-VECTOR-DB-AND-GRAPH-STRATEGY](04-VECTOR-DB-AND-GRAPH-STRATEGY.md) — Qdrant config, search patterns
 - [06-INTEGRATION-SPEC](06-INTEGRATION-SPEC.md) — Docker stack, API endpoints
 - [08-MULTI-AGENT-ACCESS-LAYER](08-MULTI-AGENT-ACCESS-LAYER.md) — Guided intake, context bean
-- [12-DEEP-DIVE-ITER3](../feedback/agent-memory/12-DEEP-DIVE-THINKING-INFRASTRUCTURE-ITER3.md) — 8-layer architecture, pheromone model
-- [13-MVP-SPEC-THOUGHT-TRACING](../feedback/agent-memory/13-MVP-SPEC-THOUGHT-TRACING.md) — Original MVP spec
-- [14-AGENT-CONTEXT](../feedback/agent-memory/14-AGENT-CONTEXT.md) — Consolidated vision
