@@ -3,7 +3,7 @@
 **Date:** 2026-02-19
 **Author:** PDSA Agent
 **Task:** best-practice-agent-memory
-**Status:** COMPLETE (iteration 4 — usability improvements after LIAISON review)
+**Status:** COMPLETE (iteration 5 — polish and consistency after LIAISON review)
 
 ---
 
@@ -441,12 +441,36 @@ Iteration 4 was a usability pass, not a content pass. The theoretical depth from
 
 ---
 
+---
+
+# ITERATION 5: Polish and Consistency
+
+**Date:** 2026-02-23
+**Rework reason:** LIAISON review identified 4 consistency and polish items.
+
+---
+
+## Feedback → Changes (Iteration 5)
+
+| # | Feedback | Change Made |
+|---|----------|------------|
+| 1 | Version consistency — README says 3 iterations, should say 4 | Fixed README to "Four iterations" and updated Related sections across all docs |
+| 2 | README should guide readers to WHEN checklist first | Added Quick Start section at top of README pointing to WHEN implementation checklist |
+| 3 | De-duplicate open questions across docs | Removed duplicates: pheromone tuning removed from WHEN (kept in WHERE), co-retrieval experiment removed from WHAT (kept in WHERE), ρ_c removed from WHAT (kept in WHEN). Added cross-reference "See also" links at end of each doc's Open Questions. |
+| 4 | Co-retrieval experiment needs more specifics | Expanded WHERE doc's co-retrieval experiment with: setup (15+ docs), queries (3+ agents, 20+ queries each, 1 week), measurement (co-retrieval pairs appearing 3+ times vs explicit cross-refs), success/failure criteria. |
+
+### Process Note
+
+Iteration 5 was a polish pass — no content changes, only consistency fixes. Each open question now lives in exactly one document with cross-references from the others. The LIAISON's "focus on items 1-3, then 4 if time" prioritization was effective.
+
+---
+
 ## Deliverables
 
 | File | Description |
 |------|-------------|
-| `pdsa/2026-02-19-agent-memory.pdsa.md` | This document — the research journey (4 iterations) |
+| `pdsa/2026-02-19-agent-memory.pdsa.md` | This document — the research journey (5 iterations) |
 | `docs/agent-memory/agent-memory-what.md` | Best practice: what is worth remembering |
 | `docs/agent-memory/agent-memory-where.md` | Best practice: storage architecture |
 | `docs/agent-memory/agent-memory-when.md` | Best practice: lifecycle triggers |
-| `docs/agent-memory/README.md` | Topic navigation |
+| `docs/agent-memory/README.md` | Topic navigation with Quick Start |
