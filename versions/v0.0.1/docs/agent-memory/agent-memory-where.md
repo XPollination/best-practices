@@ -270,17 +270,25 @@ project/
 
 2. **Pheromone tuning** — the MVP spec uses 0.995/hour decay. Should different memory types decay at different rates? Should consolidation vectors (higher-order insights) decay slower than raw observations?
 
-3. **Co-retrieval validation experiment** — to test whether co-retrieval reveals genuine emergent knowledge, we could: (a) populate our existing best-practices Qdrant with the 15 spec documents as separate thought vectors, (b) have multiple agents query for different topics over a week, (c) check whether co-retrieval patterns reveal connections that aren't in the explicit cross-references. This would validate or invalidate the most theoretically important claim in these documents.
+3. **Co-retrieval validation experiment** — to test whether co-retrieval reveals genuine emergent knowledge:
+   - **Setup:** Populate a vector database with 15+ documents on distinct topics (e.g., the XPollination spec documents covering organizational design, agent architecture, memory systems, and knowledge management).
+   - **Queries:** Have 3+ agents each make 20+ diverse queries over 1 week (e.g., "how should agent roles be separated?", "what makes knowledge persist?", "how do teams scale?"). Queries should span topics, not target specific documents.
+   - **Measurement:** After the week, extract all co-retrieval pairs (documents that appeared together in search results 3+ times). Compare these emergent associations against the documents' explicit cross-references.
+   - **Success criteria:** At least 2 co-retrieval associations that (a) were NOT in any document's explicit cross-references, and (b) a human reviewer confirms as genuinely useful connections.
+   - **Failure criteria:** All co-retrieval associations are either already in explicit cross-references (no new knowledge) or are noise (no genuine connection).
+   - This would validate or invalidate the most theoretically important claim in these documents.
 
 4. **Knowledge graph necessity** — at what relationship complexity do markdown cross-references break down? Current hypothesis: when convergence detection across 3+ independent analysis paths is needed.
 
 5. **Concurrent layer hooks** — how do you design markdown files so they're later ingestible by a vector database? Standardized metadata headers? Consistent atomic-note structure? Zettelkasten-style unique IDs?
 
+See also: [pheromone decay for markdown](agent-memory-what.md#open-questions) | [stigmergic activation detection](agent-memory-when.md#open-questions) | [memory operations as learnable actions](agent-memory-what.md#open-questions)
+
 ---
 
 ## Related
 
-- [PDSA: Agent Memory Research](../../pdsa/2026-02-19-agent-memory.pdsa.md) — the research journey (4 iterations)
+- [PDSA: Agent Memory Research](../../pdsa/2026-02-19-agent-memory.pdsa.md) — the research journey
 - [14-AGENT-CONTEXT](../../feedback/agent-memory/14-AGENT-CONTEXT.md) — consolidated XPollination vision
 - [13-MVP-SPEC](../../feedback/agent-memory/13-MVP-SPEC-THOUGHT-TRACING.md) — payload schema, pheromone model, endpoint design
 - [12-DEEP-DIVE-ITER3](../../feedback/agent-memory/12-DEEP-DIVE-THINKING-INFRASTRUCTURE-ITER3.md) — 8-layer architecture, Hopfield formalism
