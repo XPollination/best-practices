@@ -2,7 +2,7 @@
 
 > Status: emerging
 > Source: XPollination spec (15 documents), multi-agent operations (2026-01–02), Galarza (2026-02-17), MVP spec (doc 13), sleep consolidation research (doc 12)
-> Version: 3.0.0 | Last updated: 2026-02-23
+> Version: 4.0.0 | Last updated: 2026-02-23
 > PDSA: [2026-02-19-agent-memory.pdsa.md](../../pdsa/2026-02-19-agent-memory.pdsa.md)
 
 ---
@@ -17,7 +17,7 @@ Memory writing happens at three timescales: **continuous** (every retrieval rein
 
 ### Three Timescales of Memory Writing
 
-Iteration 2 identified five discrete triggers. Iteration 3 reveals these are actually distributed across three timescales:
+Agent memory triggers distribute across three timescales, from millisecond-level access tracking to weekly consolidation cycles:
 
 | Timescale | Mechanism | What Gets Written |
 |-----------|-----------|------------------|
@@ -25,7 +25,7 @@ Iteration 2 identified five discrete triggers. Iteration 3 reveals these are act
 | **Event-driven** | Session start, compaction, user requests, task completion | MEMORY.md entries, handoff files, DNA findings, PDSA docs |
 | **Periodic** | Sleep consolidation (NREM + REM), scheduled maintenance | Abstract insights, cross-cluster bridges, pruned stale knowledge |
 
-The spec's approach (06-INTEGRATION-SPEC) operates at the continuous timescale — every aligned thought unit is immediately stored. Markdown-based systems operate at the event-driven timescale — discrete moments trigger writes. The sleep consolidation layer adds the periodic timescale that neither markdown nor continuous logging provides: systematic transformation of accumulated experience into higher-order knowledge.
+The XPollination specification (a thought-tracing and knowledge-synthesis system) envisions continuous-timescale writing — every thought unit is immediately stored via vector database middleware. Most practical agent systems operate at the event-driven timescale — discrete moments trigger writes to markdown files. Sleep consolidation adds the periodic timescale: systematic transformation of accumulated experience into higher-order knowledge during low-activity windows.
 
 ### Two Failure Modes
 
@@ -326,6 +326,90 @@ cat > .claude/handoffs/pdsa-2026-02-23.md << 'EOF'
 ## Files Modified: pdsa/2026-02-19-agent-memory.pdsa.md, docs/agent-memory/*.md
 EOF
 ```
+
+---
+
+## Minimal Viable Memory Writing Setup
+
+### Day 1: Bootstrap + User Requests (Triggers 3 + 6)
+
+**What to set up:**
+- Create `CLAUDE.md` (or equivalent config file) with initial project rules
+- Establish convention: when the user says "remember this," persist it immediately
+
+**What to write:**
+- Essential protocols (git workflow, role boundaries, tool paths)
+- Anything the user explicitly asks you to remember
+
+**Checklist:**
+- [ ] `CLAUDE.md` exists with project-specific rules
+- [ ] Agent knows to persist explicit "remember this" instructions
+
+### Week 1: Add Session Boundaries + Context Pressure (Triggers 4 + 5)
+
+**What to set up:**
+- Create `memory/MEMORY.md` as a 200-line concise index
+- Create topic files for detailed notes (e.g., `memory/debugging.md`)
+- Define a handoff file format for session transitions
+
+**What to write at session boundaries:**
+- When running `/compact` or `/clear`: write a handoff file with Goals/Done/In Progress/Blockers/Next Steps
+- When context drops below 20%: write key findings to a topic file before compaction degrades them
+
+**Checklist:**
+- [ ] `memory/MEMORY.md` exists with concise index
+- [ ] At least 1 topic file exists for detailed notes
+- [ ] Agent writes handoff file before session transitions
+- [ ] Agent watches context percentage and writes findings proactively at 20%
+
+### Month 1: Add Post-Task Consolidation (Trigger 7)
+
+**What to set up:**
+- Adopt a structured reflection format (PDSA, retrospective, or equivalent)
+- Define a `findings` or `lessons_learned` field in task metadata
+- Add a "last reviewed" date to MEMORY.md entries for staleness detection
+
+**What to write after each task:**
+- **Study:** What did I learn? What surprised me? What connections did I find?
+- **Act:** What should change in our protocols or memory?
+- Promote stable insights from task findings to MEMORY.md
+
+**Checklist:**
+- [ ] Post-task reflection is part of the workflow (not optional)
+- [ ] Task metadata includes a `findings` field that agents treat as episodic memory
+- [ ] A process exists for promoting stable findings to MEMORY.md
+- [ ] MEMORY.md entries have "last reviewed" dates
+
+### Month 3+: Add Vector Search + Pheromone Model (Triggers 1 + 2)
+
+**When to add this:** When agents routinely can't find information in MEMORY.md + topic files, or when you need cross-project knowledge discovery.
+
+**What to set up:**
+- Deploy a vector database (Qdrant, Pinecone, or similar)
+- Build API endpoints for contributing thoughts (`/think`) and retrieving them (`/retrieve`)
+- Implement pheromone reinforcement (+0.05 per access, ceiling 10.0)
+- Schedule hourly pheromone decay (×0.995/hour, floor 0.1)
+
+**Checklist:**
+- [ ] Vector database deployed and accessible
+- [ ] Agents can contribute thoughts with provenance metadata
+- [ ] Retrieval logs access patterns (who, when, co-retrieved with what)
+- [ ] Pheromone model runs (reinforcement on access, decay on schedule)
+- [ ] `/highways` endpoint surfaces emerging patterns
+
+### Month 6+: Add Sleep Consolidation (Trigger 8)
+
+**When to add this:** When accumulated vector data is large enough to benefit from periodic abstraction.
+
+**What to set up:**
+- Schedule NREM consolidation: cluster dense regions → LLM-generated abstracts → new consolidation vectors
+- Schedule REM consolidation: identify cross-cluster bridges → generate hypothetical connections
+- Define maintenance: evict vectors below relevance threshold, rebalance indexes
+
+**Checklist:**
+- [ ] Consolidation runs during low-activity periods
+- [ ] Consolidation vectors link back to sources via `source_ids`
+- [ ] Cross-cluster bridges are tested against real queries before permanent storage
 
 ---
 
