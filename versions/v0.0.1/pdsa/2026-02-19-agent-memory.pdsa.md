@@ -3,7 +3,7 @@
 **Date:** 2026-02-19
 **Author:** PDSA Agent
 **Task:** best-practice-agent-memory
-**Status:** COMPLETE (iteration 8 — trivium rework: 8 directions across Grammar/Dialectic/Rhetoric)
+**Status:** ACTIVE (iteration 9 — general specification for XPollination thought tracing system)
 
 ---
 
@@ -630,7 +630,7 @@ Who are these for? A solo developer? A multi-agent team? An XPollination archite
 
 ---
 
-## Deliverables
+## Deliverables (Iterations 1-8)
 
 | File | Description |
 |------|-------------|
@@ -639,3 +639,554 @@ Who are these for? A solo developer? A multi-agent team? An XPollination archite
 | `docs/agent-memory/agent-memory-where.md` | Best practice: storage architecture |
 | `docs/agent-memory/agent-memory-when.md` | Best practice: lifecycle triggers |
 | `docs/agent-memory/README.md` | Topic navigation with Why This Matters + novel contributions |
+
+---
+
+---
+
+# ITERATION 9: General Specification — XPollination Thought Tracing System
+
+**Date:** 2026-02-23
+**Rework reason:** Thomas's rework with two items: (1) Fix factual errors about API state (completed above), (2) Write a general specification for the best-practice solution — current state, target state, gap analysis, endpoint specs, data model, pheromone model, implementation phases.
+
+---
+
+## PLAN (Iteration 9)
+
+### Objective
+
+Create a general specification thorough enough that a developer can read ONLY this document and know what to build. The spec bridges the gap between:
+- **Current state:** A basic Fastify API at `localhost:3200` with semantic search over embedded best-practice markdown chunks
+- **Target state:** The XPollination thought tracing system described in the MVP spec (doc 13), with provenance, pheromone self-regulation, co-retrieval tracking, and agent integration
+
+### Sources Read
+
+| Document | Key Contribution to Spec |
+|----------|-------------------------|
+| `api/src/index.ts` + route files | Current API implementation details |
+| `api/src/services/embedding.ts` | Current embedding model (all-MiniLM-L6-v2, 384-dim) |
+| `api/src/services/qdrant.ts` | Current Qdrant client, collection setup, query patterns |
+| 02-CORE-ARCHITECTURE | 5-phase data flow, mirroring loop, real-time context injection |
+| 03-AGENT-GUIDELINES | Thought unit schema, convergence zone schema, agent lifecycle |
+| 04-VECTOR-DB-AND-GRAPH-STRATEGY | Qdrant collections, HNSW config, search patterns, embedding strategy |
+| 06-INTEGRATION-SPEC | Docker stack, voice pipeline, WebSocket, API endpoints |
+| 12-DEEP-DIVE-ITER3 | 8-layer architecture, Hopfield theory, pheromone model, sleep consolidation, geometric dynamics |
+| 13-MVP-SPEC-THOUGHT-TRACING | Buildable MVP: /think, /retrieve, /highways, payload schema, pheromone parameters, implementation timeline |
+| 14-AGENT-CONTEXT | Consolidated vision, mining metaphor, MVP proves 5 things, glossary |
+
+---
+
+## DO (Iteration 9)
+
+### 1. Current State — What Exists Today
+
+**Server:** Fastify + Node.js (TypeScript) at `localhost:3200` and `https://bestpractice.xpollination.earth/`
+
+**Endpoints:**
+
+| Endpoint | Method | Behavior |
+|----------|--------|----------|
+| `/api/v1/query` | POST | Semantic search over `best_practices` collection. Accepts `{query, domain?, intent?, language?}`. Returns top-5 matches by cosine similarity. Stores query embedding in `queries` collection for analytics. `intent` and `language` accepted but NOT used in search logic. |
+| `/api/v1/ingest` | POST | Store new content. Accepts `{content, metadata?: {domain?, source?}}`. Embeds and upserts to `best_practices` collection. No provenance, no thought_type. |
+| `/api/v1/health` | GET | Returns Qdrant connectivity status and point counts for both collections. |
+| `/api/v1/` | GET | API documentation/discovery endpoint. |
+
+**Embedding Model:** `Xenova/all-MiniLM-L6-v2` via HuggingFace Transformers.js
+- Dimensions: 384
+- Distance: Cosine
+- Pooling: Mean pooling with normalization
+- Loading: Lazy singleton (first request)
+
+**Qdrant Collections:**
+
+| Collection | Vectors | Purpose |
+|------------|---------|---------|
+| `best_practices` | ~20 chunks from seeded markdown docs | Searchable best-practice content. Payload: `content`, `domain`, `file_path`, `file_name`, `chunk_index`, `total_chunks`, `source`, `timestamp`. |
+| `queries` | Search query embeddings | Analytics/audit trail. Payload: `query`, `domain`, `intent`, `language`, `timestamp`, `results_count`. |
+
+**Infrastructure:**
+- Qdrant: Docker container, port 6333, 300MB memory limit, HNSW on-disk
+- nginx: reverse proxy for HTTPS at `bestpractice.xpollination.earth`
+- Seeder: Chunks markdown files from `versions/` by domain directory, 500-word target, skips README.md
+- No authentication, no rate limiting, CORS allows all origins
+
+**What is NOT present:**
+- No thought provenance (who contributed what)
+- No access logging (who retrieved what, when)
+- No pheromone model (no reinforcement, no decay)
+- No co-retrieval tracking
+- No thought types (original/refinement/consolidation)
+- No source linking (source_ids)
+- No agent integration (no MCP tool, no Claude Code skill)
+- No background jobs
+- No highway detection
+
+### 2. Target State — XPollination Thought Tracing System
+
+The target system transforms the basic search API into a **self-organizing knowledge substrate** where:
+1. Thoughts become discoverable through semantic proximity (no explicit sharing needed)
+2. Usage is tracked (who accessed what, when, with what co-results)
+3. Highways form (frequently accessed thoughts become prominent via pheromone reinforcement)
+4. Provenance is preserved (every thought traces back to its originator)
+5. Refinements link back to source contributions
+
+**Three Core Endpoints:**
+
+#### `POST /api/v1/think` — Contribute a Thought
+
+Stores a new thought with full provenance metadata. Every thought is embedded and stored in the `thought_space` collection.
+
+**Request:**
+```json
+{
+  "content": "Role boundaries prevent coordination collapse. QA writes tests, Dev implements, PDSA plans.",
+  "contributor_id": "agent-pdsa-001",
+  "contributor_name": "PDSA Agent",
+  "thought_type": "original",
+  "source_ids": [],
+  "tags": ["multi-agent", "role-separation", "coordination"]
+}
+```
+
+**Field details:**
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `content` | string | Yes | The thought in clear language (decoded, not raw transcript) |
+| `contributor_id` | string | Yes | Unique identifier for the contributing agent/user |
+| `contributor_name` | string | Yes | Human-readable name |
+| `thought_type` | enum | Yes | `"original"` (new insight), `"refinement"` (builds on existing, requires `source_ids`), `"consolidation"` (abstracts from multiple, requires `source_ids`) |
+| `source_ids` | UUID[] | Conditional | Required for refinements and consolidations. Points to parent thoughts. |
+| `tags` | string[] | No | Free-form topic tags for payload filtering |
+
+**Response:**
+```json
+{
+  "thought_id": "uuid-generated",
+  "status": "stored",
+  "embedding_stored": true,
+  "pheromone_weight": 1.0
+}
+```
+
+**Behavior:**
+1. Validate input (content non-empty, thought_type valid, source_ids present if refinement/consolidation)
+2. Embed content using the embedding model
+3. Generate UUID for thought_id
+4. Store in Qdrant `thought_space` collection with full payload (see Data Model below)
+5. Return thought_id for future reference
+
+#### `POST /api/v1/retrieve` — Search with Tracing
+
+Semantic search that logs access patterns and updates pheromone weights on every call. This is where "retrieval patterns ARE knowledge" becomes concrete.
+
+**Request:**
+```json
+{
+  "query": "how should agent roles be separated?",
+  "agent_id": "agent-dev-002",
+  "limit": 10,
+  "exclude_self": true,
+  "min_score": 0.5,
+  "filter_tags": ["multi-agent"]
+}
+```
+
+**Field details:**
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `query` | string | Yes | Search query text |
+| `agent_id` | string | Yes | Who is querying (for access logging) |
+| `limit` | int | No | Max results (default: 10) |
+| `exclude_self` | bool | No | Exclude thoughts by this agent_id (default: false) |
+| `min_score` | float | No | Minimum similarity score (default: 0.0) |
+| `filter_tags` | string[] | No | Filter by tags (AND logic) |
+
+**Response:**
+```json
+{
+  "results": [
+    {
+      "thought_id": "uuid-1",
+      "content": "Role boundaries prevent coordination collapse...",
+      "contributor_id": "agent-pdsa-001",
+      "contributor_name": "PDSA Agent",
+      "thought_type": "original",
+      "score": 0.87,
+      "pheromone_weight": 2.35,
+      "access_count": 12,
+      "tags": ["multi-agent", "role-separation"]
+    }
+  ],
+  "session_id": "session-uuid",
+  "co_retrieved_ids": [["uuid-1", "uuid-3"], ["uuid-1", "uuid-5"]],
+  "total_found": 3
+}
+```
+
+**Behavior (critical — this is the core of the system):**
+1. Embed query
+2. Search `thought_space` with optional filters (tags, exclude_self, min_score)
+3. **For each returned result** (this is the memory-write part of every retrieval):
+   a. `access_count += 1`
+   b. `pheromone_weight = min(10.0, pheromone_weight + 0.05)`
+   c. `last_accessed = now()`
+   d. Append `agent_id` to `accessed_by` (deduplicated set)
+   e. Append `{user_id, timestamp, session_id}` to `access_log` (cap at last 100 entries)
+   f. For every OTHER result in the same result set: append to `co_retrieved_with` (cap at 50)
+4. Log query to `query_log` table (see Data Model)
+5. Generate session_id for grouping co-retrievals
+6. Return results with current pheromone weights
+
+#### `GET /api/v1/highways` — Emerging Thought Patterns
+
+Surfaces thoughts that have become well-worn paths through the knowledge space.
+
+**Request (query params):**
+| Param | Type | Default | Description |
+|-------|------|---------|-------------|
+| `min_access` | int | 3 | Minimum access_count to qualify |
+| `min_users` | int | 2 | Minimum unique users in accessed_by |
+| `limit` | int | 20 | Max highways returned |
+| `sort_by` | string | `"traffic"` | `"traffic"` (access_count × unique_users), `"pheromone"`, `"recent"` |
+
+**Response:**
+```json
+{
+  "highways": [
+    {
+      "thought_id": "uuid-1",
+      "content": "Role boundaries prevent coordination collapse...",
+      "contributor_id": "agent-pdsa-001",
+      "contributor_name": "PDSA Agent",
+      "access_count": 12,
+      "unique_users": 4,
+      "pheromone_weight": 2.35,
+      "traffic_score": 48,
+      "last_accessed": "2026-02-23T15:00:00Z",
+      "top_co_retrieved": ["uuid-3", "uuid-5"]
+    }
+  ],
+  "total_highways": 5
+}
+```
+
+**Behavior:**
+1. Query `thought_space` using Qdrant's scroll + order_by with payload filters:
+   - `access_count >= min_access`
+   - `len(accessed_by) >= min_users`
+2. Calculate traffic_score = `access_count × len(accessed_by)`
+3. Sort by requested sort_by field
+4. Include top co-retrieved thoughts for each highway
+5. Return paginated results
+
+### 3. Data Model
+
+#### Qdrant Collection: `thought_space`
+
+**Vector:** 384-dim (all-MiniLM-L6-v2) — keep current embedding model for MVP
+
+**Payload schema per point:**
+```json
+{
+  "contributor_id": "agent-pdsa-001",
+  "contributor_name": "PDSA Agent",
+  "content": "The actual thought text",
+  "created_at": "2026-02-23T15:00:00Z",
+  "thought_type": "original",
+  "source_ids": [],
+  "tags": ["multi-agent", "role-separation"],
+
+  "access_count": 0,
+  "last_accessed": null,
+  "accessed_by": [],
+  "access_log": [],
+  "co_retrieved_with": [],
+  "pheromone_weight": 1.0
+}
+```
+
+**Payload indexes to create:**
+| Field | Index Type | Purpose |
+|-------|-----------|---------|
+| `contributor_id` | KEYWORD | Filter by contributor, contributor reports |
+| `created_at` | DATETIME | Time-range queries |
+| `access_count` | INTEGER | Highway detection (>= threshold) |
+| `last_accessed` | DATETIME | Decay job efficiency (only decay recently active) |
+| `thought_type` | KEYWORD | Filter by type |
+| `tags` | KEYWORD | Tag-based filtering |
+| `pheromone_weight` | FLOAT | Sort by prominence |
+
+#### Query Log Table (SQLite — secondary analytics store)
+
+```sql
+CREATE TABLE query_log (
+  id TEXT PRIMARY KEY,
+  agent_id TEXT NOT NULL,
+  query_text TEXT NOT NULL,
+  query_vector BLOB,
+  returned_ids TEXT NOT NULL,  -- JSON array of thought UUIDs
+  session_id TEXT NOT NULL,
+  timestamp TEXT NOT NULL DEFAULT (datetime('now')),
+  result_count INTEGER NOT NULL
+);
+
+CREATE INDEX idx_query_log_agent ON query_log(agent_id);
+CREATE INDEX idx_query_log_session ON query_log(session_id);
+CREATE INDEX idx_query_log_timestamp ON query_log(timestamp);
+```
+
+**Purpose:** Offline analytics — hub detection, thinking trajectory tracking, query pattern analysis. Kept separate from Qdrant to avoid polluting the hot vector DB with analytics data.
+
+**Note:** The current `queries` collection in Qdrant stores query embeddings. For the MVP, the SQLite query_log replaces this — it's cheaper to query and doesn't consume vector storage. The existing `queries` collection can be deprecated.
+
+### 4. Pheromone Model
+
+**Parameters:**
+| Parameter | Value | Rationale |
+|-----------|-------|-----------|
+| Initial weight | 1.0 | Neutral starting point |
+| Reinforcement per access | +0.05 | Small enough that single access doesn't dominate |
+| Ceiling | 10.0 | Prevents runaway — max 10× baseline prominence |
+| Decay rate | 0.995 per hour | ~11% per day, ~50% per week, floor reached in ~1 month |
+| Floor | 0.1 | Never fully invisible — always discoverable with direct search |
+
+**Reinforcement (on every `/retrieve`):**
+```
+new_weight = min(10.0, current_weight + 0.05)
+```
+
+**Decay (hourly background job):**
+```
+For all vectors where last_accessed < (now - 1 hour):
+  new_weight = max(0.1, current_weight * 0.995)
+```
+
+**Implementation note:** Use Qdrant's `set_payload` API to update pheromone weights. The decay job scrolls through all points with `last_accessed` before the cutoff and batch-updates weights. On the current scale (~20 vectors + whatever agents contribute), this is trivial. At larger scale, partition by `last_accessed` date range.
+
+**Tuning questions for future work:**
+- Should consolidation vectors (thought_type="consolidation") decay slower? They represent higher-order insights.
+- Should the reinforcement amount vary by query relevance score? A 0.95 match might reinforce more than a 0.51 match.
+- Should decay pause during system downtime? Or should time always count?
+
+### 5. Co-Retrieval Tracking
+
+**Mechanism:** When `/retrieve` returns N results, each result pair (A, B) is a co-retrieval event. For each pair:
+- Append B's ID to A's `co_retrieved_with` (and vice versa)
+- Cap at 50 most recent entries per vector
+
+**Why this matters:** Co-retrieval reveals functional associations no agent explicitly created. Two thoughts about "organizational design" and "microservice architecture" might be repeatedly co-retrieved — revealing that teams working on org structure also need tech architecture insights.
+
+**Validation gap (documented in WHERE doc):** Co-retrieval may be noise from embedding proximity rather than genuine emergent knowledge. The proposed experiment (WHERE doc, Open Questions #3) tests this by comparing co-retrieval edges against explicit cross-references.
+
+**Cap rationale:** 50 entries is enough to detect stable patterns without unbounded payload growth. Older entries naturally rotate out as new co-retrievals are appended.
+
+### 6. Background Jobs
+
+| Job | Schedule | What It Does |
+|-----|----------|-------------|
+| Pheromone decay | Every hour | Multiply `pheromone_weight *= 0.995` for all vectors not accessed in the last hour. Floor at 0.1. |
+| Highway detection | Every 15 minutes | Scan for vectors with `access_count >= 3` and `len(accessed_by) >= 2`. Flag as highways. (Used by `/highways` endpoint — can be computed on-demand for MVP, scheduled job is optimization.) |
+
+**Implementation options:**
+- **Simple (MVP):** `setInterval` in the Fastify server process. Works for single-instance deployment.
+- **Robust:** Separate worker process using `node-cron` or `APScheduler` (if switching to Python). Better for production reliability.
+- **Note:** The CX22 server (2 vCPU, 8GB RAM) can handle both jobs as in-process intervals. A separate worker is premature for the current scale.
+
+### 7. Agent Integration
+
+**How agents connect to the system:**
+
+**Option A: Direct HTTP (MVP — recommended for simplicity)**
+Agents make HTTP calls to `localhost:3200` from their bash environment:
+```bash
+# Contribute a thought
+curl -X POST http://localhost:3200/api/v1/think \
+  -H "Content-Type: application/json" \
+  -d '{"content":"...", "contributor_id":"agent-pdsa", "contributor_name":"PDSA", "thought_type":"original", "tags":["memory"]}'
+
+# Retrieve
+curl -X POST http://localhost:3200/api/v1/retrieve \
+  -H "Content-Type: application/json" \
+  -d '{"query":"agent memory patterns", "agent_id":"agent-dev"}'
+```
+
+**Option B: MCP Tool (future — tighter integration)**
+Register `/think` and `/retrieve` as MCP tools in the xpollination-mcp-server. Agents call them naturally through the MCP protocol without needing bash/curl.
+
+**Option C: Claude Code Skill (future — highest integration)**
+Create a `/think` and `/retrieve` skill in `~/.claude/skills/` that wraps the HTTP calls. Agents invoke via `/think "my insight"`.
+
+**Recommendation:** Start with Option A. It requires no changes to the MCP server or Claude Code configuration. Agents already have bash access and can call curl. Once the system proves valuable, upgrade to Option B or C.
+
+**Auto-contribution hooks (future):**
+- After every PDSA Study phase → auto-POST /think with findings
+- After every task DNA update → auto-POST /think with key findings
+- On session end → auto-POST /think with session summary
+
+### 8. Backward Compatibility
+
+The existing `/api/v1/query` and `/api/v1/ingest` endpoints MUST continue working. They serve the current best-practice search functionality at `bestpractice.xpollination.earth`.
+
+**Strategy:**
+- Keep `best_practices` collection and existing endpoints untouched
+- Add `thought_space` collection and new endpoints (`/think`, `/retrieve`, `/highways`) alongside
+- The two systems coexist: `best_practices` for static document search, `thought_space` for dynamic thought tracing
+- Future migration: gradually move best-practice content into `thought_space` as original thoughts, deprecate old endpoints
+
+### 9. Gap Analysis — Current → Target
+
+| Capability | Current | Target | Gap |
+|-----------|---------|--------|-----|
+| Semantic search | ✅ `/query` with domain filter | ✅ `/retrieve` with tag filter | New endpoint with extended behavior |
+| Content storage | ✅ `/ingest` (no provenance) | ✅ `/think` (full provenance) | New endpoint with contributor_id, thought_type, source_ids |
+| Access tracking | ❌ None | ✅ access_count, accessed_by, access_log | Middleware on /retrieve |
+| Pheromone model | ❌ None | ✅ +0.05 reinforce, 0.995/hr decay | Reinforcement on /retrieve + hourly decay job |
+| Co-retrieval | ❌ None | ✅ co_retrieved_with tracking | Logic in /retrieve |
+| Highway detection | ❌ None | ✅ /highways endpoint | New endpoint + optional background job |
+| Background jobs | ❌ None | ✅ Decay (hourly), detection (15min) | Job scheduler |
+| Thought types | ❌ None | ✅ original/refinement/consolidation | Schema field |
+| Source linking | ❌ None | ✅ source_ids for provenance chains | Schema field |
+| Query logging | ✅ Qdrant `queries` collection | ✅ SQLite `query_log` table | Migrate from Qdrant to SQLite |
+| Existing endpoints | ✅ /query, /ingest, /health | ✅ Preserved | No change needed |
+| Embedding model | 384-dim MiniLM | 384-dim MiniLM (keep for MVP) | No change |
+| Agent integration | ❌ None | ✅ Direct HTTP (MVP) | Documentation + agent workflow integration |
+
+### 10. Implementation Phases
+
+#### Phase 1: Foundation (Week 1)
+**Goal:** New collection + /think + basic /retrieve
+
+1. Create `thought_space` collection in Qdrant (384-dim, cosine, payload indexes)
+2. Implement `POST /api/v1/think` endpoint
+   - Input validation (content, contributor_id, thought_type, source_ids)
+   - Embed content
+   - Store with full payload schema
+   - Return thought_id
+3. Implement `POST /api/v1/retrieve` endpoint (basic version)
+   - Embed query
+   - Search thought_space
+   - Return results (no access tracking yet)
+4. Add SQLite `query_log` table
+5. Keep existing endpoints working
+
+**Acceptance test:** Can contribute a thought via /think and retrieve it via /retrieve.
+
+#### Phase 2: Tracing + Pheromone (Week 2)
+**Goal:** Access tracking, pheromone reinforcement, decay job
+
+1. Add access tracking to /retrieve:
+   - Update access_count, accessed_by, access_log on each result
+   - Update co_retrieved_with for all result pairs
+   - Reinforce pheromone_weight (+0.05, cap 10.0)
+   - Log to SQLite query_log
+2. Implement hourly pheromone decay job (setInterval)
+   - Scroll vectors not accessed in last hour
+   - Apply 0.995 decay (floor 0.1)
+3. Session ID generation for grouping co-retrievals
+
+**Acceptance test:** Retrieve the same thought 5 times → access_count = 5, pheromone_weight = 1.25. Wait 24 hours → weight decayed ~11%.
+
+#### Phase 3: Visibility (Week 3)
+**Goal:** /highways endpoint, contributor stats
+
+1. Implement `GET /api/v1/highways` endpoint
+   - Filter by min_access, min_users
+   - Calculate traffic_score
+   - Sort options
+   - Include top co-retrieved
+2. Implement `GET /api/v1/contributors/:id` endpoint (optional)
+   - Thoughts contributed count
+   - Total access to their thoughts
+   - Most-accessed thought
+3. Highway detection job (every 15 min, optional — can compute on-demand)
+
+**Acceptance test:** After multiple agents access shared thoughts, /highways returns the most-trafficked ones.
+
+#### Phase 4: Agent Integration (Week 4)
+**Goal:** Agents can contribute and retrieve as part of their workflow
+
+1. Document HTTP API for agents (curl examples)
+2. Create example scripts: contribute-thought.sh, retrieve-knowledge.sh
+3. Test with real agents: PDSA contributes findings, DEV retrieves relevant patterns
+4. (Optional) Create MCP tool wrapping /think and /retrieve
+5. (Optional) Create Claude Code skill for /think
+
+**Acceptance test:** PDSA agent completes a task → contributes findings via /think → DEV agent on next task retrieves relevant insights via /retrieve.
+
+---
+
+## STUDY (Iteration 9)
+
+### What I Learned from Reading the Specs
+
+1. **The MVP spec (doc 13) is remarkably concrete.** It includes code snippets, exact parameter values, and a week-by-week timeline. The gap between "spec" and "implementation plan" is smaller than expected — most of the design work is already done in doc 13.
+
+2. **The embedding model decision is less critical than I initially thought.** The spec recommends BGE-M3 (1024-dim, multilingual). The current system uses all-MiniLM-L6-v2 (384-dim). For the MVP, 384-dim is fine — the pheromone model and access tracking are the novel features, not the embedding quality. BGE-M3 would require significantly more RAM on the CX22 (8GB total) and adds deployment complexity. Migration path: when the system proves valuable, upgrade embedding model and re-embed the collection.
+
+3. **The spec envisions FastAPI (Python) but our system is Fastify (Node.js/TypeScript).** This is a practical divergence. The current codebase is TypeScript — rewriting in Python adds effort without clear benefit for the MVP. The Qdrant client libraries are equally good in both languages. **Recommendation: stay with Fastify/TypeScript** and translate the Python code examples from doc 13 to TypeScript.
+
+4. **The `queries` collection in Qdrant is an overengineered analytics store.** The current system embeds query vectors in Qdrant — wasteful because they're never searched semantically. SQLite is better for analytics (cheaper storage, easier to query with GROUP BY, JOIN, etc.). The migration from Qdrant queries collection to SQLite query_log is a simplification, not added complexity.
+
+5. **Backward compatibility is straightforward.** The existing `/query` and `/ingest` endpoints operate on a separate collection (`best_practices`). The new system uses a new collection (`thought_space`). No migration needed — they coexist.
+
+6. **The full vision (8 layers, knowledge graph, sleep consolidation, RL policy) is genuine future work.** The MVP specification wisely focuses on 3 endpoints + pheromone model. Layers 2-7 are post-MVP. The spec is clear about this — it's not "build everything now" but "build the foundation that enables everything later."
+
+### What Is Clear vs. Ambiguous
+
+**Clear:**
+- Endpoint signatures (/think, /retrieve, /highways) — well-defined in doc 13
+- Payload schema — exact fields with types
+- Pheromone parameters — 0.05 boost, 0.995 decay, 1.0 initial, 0.1 floor, 10.0 ceiling
+- Co-retrieval tracking mechanism — update on every retrieve
+- Highway detection — access_count × unique_users sorting
+
+**Ambiguous:**
+1. **Authentication/authorization.** No spec document addresses how agents authenticate. API key? Agent ID in request body (current design)? OAuth? For MVP, trusting the `contributor_id`/`agent_id` in request bodies is acceptable (all agents run on the same server). For production, this needs resolution.
+
+2. **Payload size limits.** What's the maximum `content` length? The spec says "decoded thought in clear language" — could be a sentence or a page. The embedding model has a max input length (512 tokens for MiniLM). Content longer than this should be truncated for embedding but stored in full.
+
+3. **Collection migration.** Should existing best-practice documents be seeded into `thought_space` as original thoughts? The spec doesn't address whether static documents and dynamic thoughts belong in the same collection. **My recommendation:** Keep them separate for now. Best practices are reference material; thoughts are dynamic. Mixing them would conflate two different access patterns.
+
+4. **Rate of pheromone operations.** With 4 agents each making a few queries per task, the total retrieval volume is low (~50-100/day). The pheromone model is designed for higher traffic. At current scale, pheromone weights will barely move. This is fine — the model is correct at any scale, it just becomes MORE useful at higher scale.
+
+5. **Sleep consolidation trigger.** The spec describes NREM/REM consolidation but doesn't specify what triggers it beyond "low-activity periods." For MVP: skip sleep consolidation entirely. Add it when the thought_space has enough vectors (100+?) to benefit from clustering.
+
+---
+
+## ACT (Iteration 9)
+
+### Immediate Next Steps
+
+1. **DEV agent builds Phase 1** (Foundation) — new collection, /think, basic /retrieve
+2. **DEV agent builds Phase 2** (Tracing) — access logging, pheromone, co-retrieval
+3. **DEV agent builds Phase 3** (Visibility) — /highways endpoint
+4. **QA writes acceptance tests** matching the test criteria in each phase
+5. **PDSA reviews** that implementation matches this specification
+
+### Decisions Made (for Thomas to confirm or override)
+
+| Decision | Rationale | Alternative |
+|----------|-----------|-------------|
+| Keep 384-dim MiniLM for MVP | Already deployed, sufficient quality, low RAM | Upgrade to BGE-M3 1024-dim (needs RAM assessment) |
+| Stay with Fastify/TypeScript | Existing codebase, no benefit to rewriting | Rewrite in FastAPI/Python (spec's preferred stack) |
+| Separate collections (best_practices + thought_space) | Different access patterns, clean separation | Single collection with type filter |
+| SQLite for query_log (not Qdrant) | Cheaper for analytics, SQL queries | Keep Qdrant queries collection |
+| Direct HTTP for agent integration (MVP) | Simplest, no infrastructure changes | MCP tool (tighter integration, more work) |
+| Skip sleep consolidation for MVP | Insufficient data volume, add complexity | Include from start |
+| setInterval for background jobs (MVP) | Simplest for single-instance | Separate worker process |
+| Trust request-body agent_id (MVP) | All agents on same server | API key authentication |
+
+### Process Reflection
+
+This iteration is fundamentally different from iterations 1-8. Those were **research and documentation** — understanding agent memory theory and documenting best practices. This iteration is **system design** — specifying what to BUILD. The PDSA methodology applies equally well: the PLAN read existing specs, the DO analyzed the gap, the STUDY reflected on clarity vs ambiguity, and this ACT section defines next steps.
+
+The most important output of this iteration is the gap analysis table (Section 9). It shows in one glance what exists, what's needed, and what connects them. A developer reading only that table and the endpoint specifications has enough to start building.
+
+---
+
+## Deliverables (Iteration 9)
+
+| File | Description |
+|------|-------------|
+| `pdsa/2026-02-19-agent-memory.pdsa.md` | This document — iteration 9 adds the general specification |
+| `docs/agent-memory/agent-memory-where.md` | Updated: factual corrections about API state, target system clearly labeled |
