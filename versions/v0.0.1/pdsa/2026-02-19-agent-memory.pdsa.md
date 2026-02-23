@@ -3,7 +3,7 @@
 **Date:** 2026-02-19
 **Author:** PDSA Agent
 **Task:** best-practice-agent-memory
-**Status:** ACTIVE (iteration 11 — standalone spec extraction, 9 feedback items)
+**Status:** ACTIVE (iteration 12 — consolidation pass, implementation-ready spec)
 
 ---
 
@@ -1564,3 +1564,73 @@ The PDSA (this document) has 11 iterations of research trajectory — valuable f
 2. If approved: create implementation tasks for DEV (Phases 1-4)
 3. QA writes acceptance tests from spec
 4. PDSA reviews implementation matches spec
+
+---
+
+## Iteration 12: Consolidation Pass (2026-02-23)
+
+### Rework Request
+
+Thomas wants to implement NOW. Make the standalone spec implementation-ready so a DEV agent can read ONLY that file and build without questions. 10 specific consolidation items.
+
+### PLAN (Iteration 12)
+
+Address all 10 consolidation items in a single pass over `spec/thought-tracing-system.md`:
+
+| # | Item | Change |
+|---|------|--------|
+| 1 | Read spec end-to-end | Full rewrite based on analysis |
+| 2 | Remove ambiguity — ONE clear answer per section | Convert all options/alternatives to decisions |
+| 3 | Add error response schemas (400, 404, 500) | New Section 3.1 with 8 error codes |
+| 4 | Add 'How to read this document' | New paragraph at top with conventions |
+| 5 | Phase dependencies crystal clear | Each phase gets explicit `Depends on:` line |
+| 6 | Contribution threshold concrete | Exact regex, prefix list, 3 checks |
+| 7 | Disambiguation concrete | Trigger condition (10+ results, 3+ tags), tag extraction algorithm |
+| 8 | Move 'MVP: vector only' to top of Section 7 | Section 7 restructured: MVP first, post-MVP labeled |
+| 9 | Remove 'open question' language | All decisions made, no deferrals |
+| 10 | Technical blueprint, not research document | Removed all research references |
+
+### DO (Iteration 12)
+
+Rewrote `spec/thought-tracing-system.md` (v0.2.0). Key structural changes:
+- Version bumped to 0.2.0 (breaking: error schema, field additions)
+- Added "How to Read This Document" section with conventions
+- New Section 3.1: Error Response Schema (8 codes, shared format)
+- Section 3.3: Added `Validation` column to request field table
+- Section 3.5: Contribution threshold now has exact regex `^[^.!]*\?$` and prefix list
+- Section 3.7: Added `content_preview` to sources, `guidance` to result
+- Section 3.8: Disambiguation trigger (10+ results AND 3+ distinct tags), grouping algorithm, tag extraction
+- Section 3.9: New agent detection via `query_log` lookup (not `space_memberships`)
+- Section 3.10: Implicit feedback bonus = +0.02 (distinct from retrieval +0.05)
+- Section 4: Noted internal endpoints can be functions, not necessarily HTTP routes
+- Section 5.1: Added `collection creation params` JSON
+- Section 5.2: Added `IF NOT EXISTS` to SQL
+- Section 7: MVP first, post-MVP clearly labeled below
+- Section 8: Highway detection changed to on-demand (no background job needed)
+- Section 9: Each phase has `Depends on:` and `Acceptance test:`
+- Section 10: Renamed "Decisions Made" (was "Decisions for Thomas to Confirm")
+- Section 11: Reduced from 12 to 7 links, noted "background context only"
+
+### STUDY (Iteration 12)
+
+The spec went from 463 lines (v0.1.0) to a tighter document with more concrete detail per line. Main architectural clarifications:
+
+1. **Internal endpoints as functions vs routes**: Noted that `/think`, `/retrieve`, `/highways` can be internal functions called within the `/memory` handler. DEV shouldn't feel forced to create HTTP routes for internal-only logic.
+
+2. **Highway detection is on-demand, not a background job**: For MVP, computing highways at response time is simpler than maintaining a background job. Only the pheromone decay job runs on a schedule.
+
+3. **New agent detection simplified**: Changed from `space_memberships` table lookup to `query_log` check. First-time agents have zero entries in `query_log`. No need for a separate membership system in MVP.
+
+4. **Implicit feedback bonus is weaker than retrieval reinforcement**: Set at +0.02 vs +0.05. Follow-up contributions are a weaker signal than direct retrieval — the agent may have been useful for reasons beyond the specific thoughts shown.
+
+### ACT (Iteration 12)
+
+| File | Description |
+|------|-------------|
+| [`spec/thought-tracing-system.md`](../spec/thought-tracing-system.md) | **UPDATED** — v0.2.0, implementation-ready consolidation pass |
+
+### Next Steps
+
+1. Thomas reviews consolidated spec
+2. If approved: spec is ready for DEV to implement Phase 1-4
+3. QA writes acceptance tests from Section 9 acceptance test descriptions
