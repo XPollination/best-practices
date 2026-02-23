@@ -413,6 +413,16 @@ EOF
 
 ---
 
+## Key Takeaways
+
+- **Day 1: bootstrap config + honor user requests.** These two triggers alone cover most memory needs for a new project.
+- **The highest-value discrete trigger is post-task consolidation.** After completing work, ask: "What did I learn? What surprised me? What should change?" This structured reflection produces the most useful memories.
+- **Pre-compaction saves are a safety net, not a strategy.** Write findings proactively at 20% context remaining — don't wait for compaction to force it.
+- **Pheromone reinforcement makes memory self-regulating.** Every retrieval is a memory write (+0.05 weight). Every hour without access is forgetting (x0.995 decay). No manual curation needed at scale.
+- **Start the implementation checklist at Day 1, not Month 3.** The checklist in this document provides a prescriptive path from one config file to full vector-DB-backed memory with sleep consolidation. Each step is triggered by a real limitation, not architectural ambition.
+
+---
+
 ## Open Questions
 
 1. **Automated pre-compaction flush** — Can agents be taught to detect context pressure and automatically persist findings? Galarza's "silent agentic turn" is one model. Could the PDSA template include a "context checkpoint" section?
@@ -429,7 +439,7 @@ See also: [pheromone tuning](agent-memory-where.md#open-questions) | [co-retriev
 
 ## Related
 
-- [PDSA: Agent Memory Research](../../pdsa/2026-02-19-agent-memory.pdsa.md) — the research journey (4 iterations)
+- [PDSA: Agent Memory Research](../../pdsa/2026-02-19-agent-memory.pdsa.md) — the research journey (5 iterations)
 - [14-AGENT-CONTEXT](../../feedback/agent-memory/14-AGENT-CONTEXT.md) — consolidated vision with MVP and pheromone model
 - [12-DEEP-DIVE-ITER3](../../feedback/agent-memory/12-DEEP-DIVE-THINKING-INFRASTRUCTURE-ITER3.md) — sleep consolidation, stigmergic phase transition, RL formulation
 - [13-MVP-SPEC](../../feedback/agent-memory/13-MVP-SPEC-THOUGHT-TRACING.md) — pheromone model details, thought lifecycle
