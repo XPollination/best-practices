@@ -1,7 +1,7 @@
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import { ensureCollections } from "./services/vectordb.js";
-import { ensureThoughtSpace } from "./services/thoughtspace.js";
+import { ensureThoughtSpace, startPheromoneDecayJob } from "./services/thoughtspace.js";
 import { getDb } from "./services/database.js";
 import { queryRoutes } from "./routes/query.js";
 import { ingestRoutes } from "./routes/ingest.js";
@@ -19,7 +19,8 @@ try {
   await ensureCollections();
   await ensureThoughtSpace();
   getDb(); // Initialize SQLite query_log table
-  console.log("Qdrant collections ready. SQLite query_log ready.");
+  startPheromoneDecayJob();
+  console.log("Qdrant collections ready. SQLite query_log ready. Decay job started.");
 } catch (err) {
   console.error("Failed to initialize:", err);
   process.exit(1);

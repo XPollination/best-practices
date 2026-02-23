@@ -1,5 +1,6 @@
 import { QdrantClient } from "@qdrant/js-client-rest";
 import { v4 as uuidv4 } from "uuid";
+import crypto from "crypto";
 import { embed, EMBEDDING_DIM } from "./embedding.js";
 import { insertQueryLog } from "./database.js";
 
@@ -170,10 +171,12 @@ export async function think(params: ThinkParams): Promise<ThinkResult> {
   return { thought_id: thoughtId, pheromone_weight: 1.0 };
 }
 
-// --- retrieve() — Section 4.2 (Phase 1: skip access tracking and pheromone) ---
+// --- retrieve() — Section 4.2 (Phase 2: full access tracking + pheromone) ---
 
 export async function retrieve(params: RetrieveParams): Promise<RetrieveResult[]> {
   const limit = params.limit ?? 10;
+  const sessionId = params.session_id || crypto.randomUUID();
+  const now = new Date().toISOString();
 
   // Build filter if filter_tags provided
   let filter: Record<string, unknown> | undefined;
@@ -200,14 +203,81 @@ export async function retrieve(params: RetrieveParams): Promise<RetrieveResult[]
     throw new ThoughtError("QDRANT_ERROR", `Qdrant search failed: ${err}`);
   }
 
+  const resultIds = results.map((r) => String(r.id));
+
+  // Update each result: access tracking + pheromone reinforcement
+  for (const r of results) {
+    const p = r.payload as Record<string, unknown>;
+    const pointId = String(r.id);
+
+    // Access count
+    const accessCount = ((p.access_count as number) ?? 0) + 1;
+
+    // Pheromone reinforcement: +0.05, cap 10.0
+    const oldWeight = (p.pheromone_weight as number) ?? 1.0;
+    const newWeight = Math.min(10.0, oldWeight + 0.05);
+
+    // accessed_by: deduplicated agent_ids
+    const accessedBy = (p.accessed_by as string[]) ?? [];
+    if (!accessedBy.includes(params.agent_id)) {
+      accessedBy.push(params.agent_id);
+    }
+
+    // access_log: append entry, cap at 100
+    const accessLog = (p.access_log as Array<{ user_id: string; timestamp: string; session_id: string }>) ?? [];
+    accessLog.push({ user_id: params.agent_id, timestamp: now, session_id: sessionId });
+    while (accessLog.length > 100) {
+      accessLog.shift();
+    }
+
+    // co_retrieved_with: update pairs
+    const coRetrieved = (p.co_retrieved_with as Array<{ thought_id: string; count: number }>) ?? [];
+    for (const otherId of resultIds) {
+      if (otherId === pointId) continue;
+      const existing = coRetrieved.find((e) => e.thought_id === otherId);
+      if (existing) {
+        existing.count += 1;
+      } else {
+        if (coRetrieved.length >= 50) {
+          // Remove lowest count entry
+          let minIdx = 0;
+          for (let i = 1; i < coRetrieved.length; i++) {
+            if (coRetrieved[i].count < coRetrieved[minIdx].count) minIdx = i;
+          }
+          coRetrieved.splice(minIdx, 1);
+        }
+        coRetrieved.push({ thought_id: otherId, count: 1 });
+      }
+    }
+
+    // Upsert updated payload fields
+    try {
+      await client.setPayload(COLLECTION, {
+        points: [pointId],
+        payload: {
+          access_count: accessCount,
+          pheromone_weight: newWeight,
+          last_accessed: now,
+          accessed_by: accessedBy,
+          access_log: accessLog,
+          co_retrieved_with: coRetrieved,
+        },
+        wait: true,
+      });
+    } catch (err) {
+      console.error(`Failed to update access tracking for ${pointId}:`, err);
+    }
+  }
+
   const mapped: RetrieveResult[] = results.map((r) => {
     const p = r.payload as Record<string, unknown>;
+    const oldWeight = (p.pheromone_weight as number) ?? 1.0;
     return {
       thought_id: String(r.id),
       content: (p.content as string) ?? "",
       contributor_name: (p.contributor_name as string) ?? "",
       score: r.score,
-      pheromone_weight: (p.pheromone_weight as number) ?? 1.0,
+      pheromone_weight: Math.min(10.0, oldWeight + 0.05),
       tags: (p.tags as string[]) ?? [],
     };
   });
@@ -218,21 +288,90 @@ export async function retrieve(params: RetrieveParams): Promise<RetrieveResult[]
     insertQueryLog({
       id: logId,
       agent_id: params.agent_id,
-      query_text: "",  // Caller should set this if needed; retrieve() gets embedding not text
+      query_text: "",  // Caller sets this if needed; retrieve() gets embedding not text
       context_text: null,
       query_vector: Buffer.from(new Float32Array(params.query_embedding).buffer),
       returned_ids: JSON.stringify(mapped.map((r) => r.thought_id)),
-      session_id: params.session_id,
-      timestamp: new Date().toISOString(),
+      session_id: sessionId,
+      timestamp: now,
       result_count: mapped.length,
       knowledge_space_id: "ks-default",
     });
   } catch (err) {
-    // Log but don't fail retrieval if query_log insert fails
     console.error("Failed to insert query_log:", err);
   }
 
   return mapped;
+}
+
+// --- Pheromone Decay Job — Section 6, 8 ---
+
+export async function runPheromoneDecay(): Promise<number> {
+  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  let updated = 0;
+  let offset: string | number | undefined = undefined;
+
+  // Scroll through all points where last_accessed < 1 hour ago
+  while (true) {
+    const scrollResult = await client.scroll(COLLECTION, {
+      filter: {
+        must: [
+          {
+            key: "last_accessed",
+            range: { lt: oneHourAgo },
+          },
+        ],
+      },
+      limit: 100,
+      with_payload: true,
+      with_vector: false,
+      offset,
+    });
+
+    for (const point of scrollResult.points) {
+      const p = point.payload as Record<string, unknown>;
+      const currentWeight = (p.pheromone_weight as number) ?? 1.0;
+      const decayedWeight = Math.max(0.1, currentWeight * 0.995);
+
+      if (decayedWeight !== currentWeight) {
+        await client.setPayload(COLLECTION, {
+          points: [String(point.id)],
+          payload: { pheromone_weight: decayedWeight },
+          wait: true,
+        });
+        updated++;
+      }
+    }
+
+    if (!scrollResult.next_page_offset) break;
+    offset = scrollResult.next_page_offset;
+  }
+
+  return updated;
+}
+
+let decayInterval: ReturnType<typeof setInterval> | null = null;
+
+export function startPheromoneDecayJob(): void {
+  if (decayInterval) return;
+  decayInterval = setInterval(async () => {
+    try {
+      const count = await runPheromoneDecay();
+      if (count > 0) {
+        console.log(`Pheromone decay: updated ${count} thoughts`);
+      }
+    } catch (err) {
+      console.error("Pheromone decay job failed:", err);
+    }
+  }, 60 * 60 * 1000); // Every 60 minutes
+  console.log("Pheromone decay job started (interval: 60 min)");
+}
+
+export function stopPheromoneDecayJob(): void {
+  if (decayInterval) {
+    clearInterval(decayInterval);
+    decayInterval = null;
+  }
 }
 
 // --- Error class ---
