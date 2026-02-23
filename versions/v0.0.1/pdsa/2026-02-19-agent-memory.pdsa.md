@@ -3,7 +3,7 @@
 **Date:** 2026-02-19
 **Author:** PDSA Agent
 **Task:** best-practice-agent-memory
-**Status:** COMPLETE (iteration 5 — polish and consistency after LIAISON review)
+**Status:** COMPLETE (iteration 6 — Key Takeaways sections added for 30-second readability)
 
 ---
 
@@ -465,11 +465,33 @@ Iteration 5 was a polish pass — no content changes, only consistency fixes. Ea
 
 ---
 
+---
+
+# ITERATION 6: Key Takeaways
+
+**Date:** 2026-02-23
+**Rework reason:** LIAISON review (3/5) — add Key Takeaway sections before Open Questions for 30-second readability; fix README iteration count to 5.
+
+---
+
+## Feedback → Changes (Iteration 6)
+
+| # | Feedback | Change Made |
+|---|----------|------------|
+| 1 | Each doc needs a Key Takeaway / Bottom Line section before Open Questions | Added 5-bullet Key Takeaways to WHAT (filtering test, speculation, storage split, pheromone, co-retrieval), WHERE (start simple, task metadata, PDSA trajectories, pheromone bridge, concurrent layers), and WHEN (day 1 triggers, post-task consolidation, pre-compaction safety net, pheromone self-regulation, checklist path). |
+| 2 | README says "Four iterations" but PDSA has 5 | Updated README and all Related sections to "5 iterations" with iteration 5 description. |
+
+### Process Note
+
+Iteration 6 was the final content improvement — adding a reader-facing summary layer. The Key Takeaways distill the most actionable insights from each document into 5 bullets, giving readers the core message in 30 seconds without reading the full document.
+
+---
+
 ## Deliverables
 
 | File | Description |
 |------|-------------|
-| `pdsa/2026-02-19-agent-memory.pdsa.md` | This document — the research journey (5 iterations) |
+| `pdsa/2026-02-19-agent-memory.pdsa.md` | This document — the research journey (6 iterations) |
 | `docs/agent-memory/agent-memory-what.md` | Best practice: what is worth remembering |
 | `docs/agent-memory/agent-memory-where.md` | Best practice: storage architecture |
 | `docs/agent-memory/agent-memory-when.md` | Best practice: lifecycle triggers |
