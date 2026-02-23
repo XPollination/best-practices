@@ -264,6 +264,16 @@ project/
 
 ---
 
+## Key Takeaways
+
+- **Start with one file (`CLAUDE.md`), add complexity only when you hit real limitations.** Most agent systems should stay at markdown for months before considering a vector database.
+- **Task metadata is memory infrastructure you already have.** If you use a task/project management system, its description, findings, and iteration fields are already episodic memory — treat them that way.
+- **PDSA documents are trajectory memory.** They preserve *how* you arrived at a conclusion, not just the conclusion itself. This is the most valuable kind of memory for long-lived systems.
+- **The pheromone model bridges "never delete" and "200-line cap."** Store everything, let access frequency determine prominence. Frequently used knowledge rises; unused knowledge fades. No manual pruning needed.
+- **The 8-layer architecture is concurrent, not sequential.** Even a markdown-only system runs storage, reinforcement, and consolidation layers. Adding a vector database doesn't "upgrade" — it adds new concurrent layers.
+
+---
+
 ## Open Questions
 
 1. **When to add a vector database** — what concrete signal indicates that markdown isn't enough? Current hypothesis: when agents routinely can't find information they need in MEMORY.md + topic files, or when cross-project knowledge discovery matters.
