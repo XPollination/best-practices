@@ -1,6 +1,8 @@
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import { ensureCollections } from "./services/vectordb.js";
+import { ensureThoughtSpace } from "./services/thoughtspace.js";
+import { getDb } from "./services/database.js";
 import { queryRoutes } from "./routes/query.js";
 import { ingestRoutes } from "./routes/ingest.js";
 import { healthRoutes } from "./routes/health.js";
@@ -15,9 +17,11 @@ await app.register(healthRoutes);
 
 try {
   await ensureCollections();
-  console.log("Qdrant collections ready.");
+  await ensureThoughtSpace();
+  getDb(); // Initialize SQLite query_log table
+  console.log("Qdrant collections ready. SQLite query_log ready.");
 } catch (err) {
-  console.error("Failed to initialize Qdrant collections:", err);
+  console.error("Failed to initialize:", err);
   process.exit(1);
 }
 
