@@ -2,7 +2,7 @@
 
 > Status: emerging
 > Source: XPollination spec (15 documents), multi-agent operations (2026-01–02), Galarza (2026-02-17), academic literature (A-MEM, Collaborative Memory, MemAct)
-> Version: 3.0.0 | Last updated: 2026-02-23
+> Version: 4.0.0 | Last updated: 2026-02-23
 > PDSA: [2026-02-19-agent-memory.pdsa.md](../../pdsa/2026-02-19-agent-memory.pdsa.md)
 
 ---
@@ -60,31 +60,39 @@ Both have value. Conclusions are compact and fast to load (good for the 200-line
 
 ## Pattern
 
-### What TO Remember (by type and tier)
+### What TO Remember (by attractor depth)
 
-**Tier 1: Critical — forgetting causes repeated failures**
+The attractor model provides a practical test for what to remember: **how deep is the energy well?** Deep attractors survive noise (diverse access patterns, time decay). Shallow ones don't. Ephemeral ones were never worth storing.
 
-| Type | Example | Why Critical |
-|------|---------|-------------|
-| Procedural | Git protocol (add → commit → push, never `git add .`) | Violated in every session without it |
-| Semantic | Role boundaries ("QA never fixes implementation code") | Agents default to doing everything without explicit constraints |
-| Episodic | Anti-patterns with dates ("2026-02-02: QA wrote PDSA docs → broke role separation") | Prevents specific known failure modes |
+**Deep Attractors — memories that survive everything**
 
-**Tier 2: Important — speeds up work and reduces errors**
+These are accessed in virtually every session. Forgetting them causes repeated failures. In a pheromone model, they would quickly reach the 10.0 ceiling and stay there.
 
-| Type | Example | Why Important |
-|------|---------|--------------|
-| Semantic | Project structure (key file paths, DB locations) | Eliminates repeated exploration |
-| Procedural | Tool usage patterns (`interface-cli.js` commands, database paths) | Reduces setup time per session |
-| Semantic | Infrastructure context (server specs, no-sudo constraint, VPN IPs) | Prevents impossible actions |
+| Type | Example | Why Deep |
+|------|---------|---------|
+| Procedural | Git workflow rules (e.g., "always stage specific files, never use `git add .`") | Violated in every session without it; reinforced by every commit |
+| Procedural | Role boundaries (e.g., "the testing agent never fixes implementation code — it writes failing tests instead") | Agents default to doing everything; this rule is referenced every task |
+| Episodic | Anti-patterns with dates and context (e.g., "On Feb 2, the QA agent wrote the design docs instead of the planning agent, breaking role separation") | Prevents specific failure modes; referenced whenever a similar situation arises |
 
-**Tier 3: Contextual — helpful but not essential**
+**Shallow Attractors — memories that need periodic reinforcement**
+
+These speed up work when present but don't cause failures when absent. In a pheromone model, they'd hover between 1.0 and 3.0 — accessed often enough to avoid decay but not dominant.
+
+| Type | Example | Why Shallow |
+|------|---------|------------|
+| Semantic | Project structure — key file paths, database locations, server specs | Useful every session but recoverable by exploring the filesystem |
+| Procedural | Tool-specific commands and syntax | Helpful but agents can look these up when needed |
+| Semantic | Infrastructure constraints (e.g., "this server has no sudo access, use nvm for Node.js") | Prevents wasted effort but only relevant for specific operations |
+
+**Ephemeral — memories that should decay naturally**
+
+These are relevant for a limited time and should not compete with deeper attractors for storage space. In a pheromone model, they'd decay to the 0.1 floor within days.
 
 | Type | Example | Lifespan |
 |------|---------|----------|
-| Episodic | Specific debugging sessions | Until bug is fixed |
-| Semantic | Current task status | Until task completes |
-| Episodic | Communication style preferences | Until explicitly changed |
+| Episodic | Details of a specific debugging session | Until the bug is fixed |
+| Semantic | Current task status or branch name | Until the task completes |
+| Episodic | One-time workarounds for temporary issues | Until the root cause is resolved |
 
 ### What NOT to Remember
 
@@ -111,13 +119,15 @@ The most valuable memories may be ones no agent explicitly created. When two tho
 
 This emergent knowledge — associations discovered through usage, not authorship — is worth remembering precisely because no one thought to write it down.
 
+**Important caveat:** Co-retrieval is the most theoretically promising concept in these documents, but it remains **unvalidated in practice**. We have not yet run experiments to confirm that co-retrieval patterns reveal genuine insights versus noise. A proposed validation experiment: populate a vector database with 15+ documents on different topics, have multiple agents query for diverse tasks over a week, then check whether co-retrieval edges reveal associations not present in explicit cross-references. Until this is tested, co-retrieval should be treated as a high-priority hypothesis, not an established pattern.
+
 ---
 
 ## Evidence
 
-### Discovery: Task DNA IS Episodic Memory
+### Discovery: Task Metadata IS Episodic Memory
 
-During PDSA research, a non-obvious connection emerged: the PM system's task DNA structure is functionally equivalent to the spec's "thought unit schema" (03-AGENT-GUIDELINES):
+During research for these best practices, a non-obvious connection emerged: structured task metadata (what the XPollination project management system calls "task DNA") is functionally equivalent to the spec's "thought unit schema" — a standardized format for atomic units of knowledge:
 
 | Spec Thought Unit | Task DNA Equivalent |
 |---|---|
@@ -127,9 +137,9 @@ During PDSA research, a non-obvious connection emerged: the PM system's task DNA
 | `anchoring` (truth_score, scripture_refs) | `acceptance_criteria` |
 | `resonance` (convergence_zones, similar_traces) | Cross-task references in DNA |
 
-This means our workflow system isn't just coordination — it's the multi-agent memory layer. Task DNA persists what agents learned, decided, and produced. It's searchable, version-tracked, and role-attributed.
+This means any workflow or task management system isn't just coordination — it's a multi-agent memory layer. Structured task metadata persists what agents learned, decided, and produced. It's searchable, version-tracked, and role-attributed.
 
-**Implication:** Agents should be conscious that DNA updates ARE memory writes. The `findings` field is not just a status report — it's the episodic record of what was learned during the task.
+**Implication:** Agents should be conscious that task metadata updates ARE memory writes. A `findings` or `notes` field is not just a status report — it's the episodic record of what was learned during the task.
 
 ### The PDSA Format IS 90% of a Thought Unit
 
@@ -148,9 +158,9 @@ Doc 11 (Agent Review) identified the structural parallel:
 
 The missing 10%: truth anchoring metadata, explicit confidence scoring, and formal angle tagging. If the PDSA template were extended with these three fields, every PDSA would automatically be a spec-compliant thought unit.
 
-### From Our MEMORY.md (Quantitative Analysis)
+### Memory Type Distribution (Quantitative Analysis)
 
-Our MEMORY.md contains ~200 lines across ~15 sections. Analyzing by memory type:
+Analyzing a real 200-line agent memory file (MEMORY.md) from a 4-agent system running for 2 months:
 
 | Type | % of MEMORY.md | Example |
 |------|----------------|---------|
