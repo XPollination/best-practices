@@ -70,3 +70,22 @@ export function insertQueryLog(entry: QueryLogEntry): void {
     entry.knowledge_space_id
   );
 }
+
+export function getAgentQueryCount(agentId: string): number {
+  const db = getDb();
+  const row = db.prepare("SELECT COUNT(*) as cnt FROM query_log WHERE agent_id = ?").get(agentId) as { cnt: number };
+  return row.cnt;
+}
+
+export function getSessionReturnedIds(sessionId: string): string[] {
+  const db = getDb();
+  const rows = db.prepare("SELECT returned_ids FROM query_log WHERE session_id = ? ORDER BY timestamp DESC").all(sessionId) as Array<{ returned_ids: string }>;
+  const allIds: string[] = [];
+  for (const row of rows) {
+    try {
+      const ids = JSON.parse(row.returned_ids) as string[];
+      allIds.push(...ids);
+    } catch { /* skip malformed */ }
+  }
+  return [...new Set(allIds)];
+}

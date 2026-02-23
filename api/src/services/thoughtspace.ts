@@ -374,6 +374,31 @@ export function stopPheromoneDecayJob(): void {
   }
 }
 
+// --- Implicit Feedback — Section 3.10 ---
+
+export async function applyImplicitFeedback(thoughtIds: string[]): Promise<void> {
+  for (const id of thoughtIds) {
+    try {
+      const points = await client.retrieve(COLLECTION, {
+        ids: [id],
+        with_payload: true,
+        with_vector: false,
+      });
+      if (points.length === 0) continue;
+      const p = points[0].payload as Record<string, unknown>;
+      const currentWeight = (p.pheromone_weight as number) ?? 1.0;
+      const newWeight = Math.min(10.0, currentWeight + 0.02);
+      await client.setPayload(COLLECTION, {
+        points: [id],
+        payload: { pheromone_weight: newWeight },
+        wait: true,
+      });
+    } catch (err) {
+      console.error(`Failed to apply implicit feedback to ${id}:`, err);
+    }
+  }
+}
+
 // --- Error class ---
 
 export class ThoughtError extends Error {

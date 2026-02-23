@@ -6,6 +6,7 @@ import { getDb } from "./services/database.js";
 import { queryRoutes } from "./routes/query.js";
 import { ingestRoutes } from "./routes/ingest.js";
 import { healthRoutes } from "./routes/health.js";
+import { memoryRoutes } from "./routes/memory.js";
 
 const app = Fastify({ logger: true });
 
@@ -14,6 +15,7 @@ await app.register(cors, { origin: true });
 await app.register(queryRoutes);
 await app.register(ingestRoutes);
 await app.register(healthRoutes);
+await app.register(memoryRoutes);
 
 try {
   await ensureCollections();
