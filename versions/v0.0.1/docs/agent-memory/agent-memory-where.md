@@ -219,7 +219,7 @@ Our system's evolution demonstrates the natural progression:
 | Jan 2026 | CLAUDE.md only (~50 lines) | Initial protocols |
 | Late Jan | CLAUDE.md grew to 300+ lines | Accumulated lessons from multi-agent failures |
 | Feb 2026 | MEMORY.md added (200-line cap) + topic files | CLAUDE.md was too large; needed index + detail separation |
-| Feb 17 | Best-practices API (Qdrant) deployed | Cross-project knowledge needed searchable access |
+| Feb 17 | Best-practices API deployed (basic semantic search via Qdrant — `/query` and `/ingest` endpoints, 384-dim embeddings, no access tracking or provenance) | Cross-project knowledge needed searchable access |
 | Future | Pheromone model on Qdrant | When 200-line MEMORY.md can't hold all critical knowledge |
 
 Each upgrade was triggered by hitting an actual limitation. This matches the principle: **start simple, graduate when constraints bite.**
@@ -264,7 +264,7 @@ project/
 └── pdsa/                      → trajectory documents
 ```
 
-### Full System (Vector Search + Self-Organization)
+### Full System (Vector Search + Self-Organization) — TARGET, NOT YET BUILT
 
 ```
 project/
@@ -275,10 +275,12 @@ project/
 ├── data/tasks.db
 ├── pdsa/
 └── [Qdrant vector DB]         → pheromone-weighted semantic search
-    ├── /think endpoint        → contribute thoughts with provenance
-    ├── /retrieve endpoint     → search + automatic access logging
-    └── /highways endpoint     → emerging thought patterns
+    ├── POST /think            → contribute thoughts with provenance (TO BE BUILT)
+    ├── POST /retrieve         → search + access logging + pheromone (TO BE BUILT)
+    └── GET /highways          → emerging thought patterns (TO BE BUILT)
 ```
+
+**Note:** The best-practices API at `localhost:3200` currently provides only basic semantic search (`POST /api/v1/query`) and storage (`POST /api/v1/ingest`) — no access tracking, no provenance, no pheromone model. The endpoints above represent the target XPollination thought tracing system described in [13-MVP-SPEC](../../feedback/agent-memory/13-MVP-SPEC-THOUGHT-TRACING.md). See the [general specification](../../pdsa/2026-02-19-agent-memory.pdsa.md#iteration-9-general-specification) for the gap analysis and implementation plan.
 
 ---
 
