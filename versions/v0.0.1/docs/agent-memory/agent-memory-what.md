@@ -1,15 +1,15 @@
 # What Is Worth Remembering?
 
 > Status: emerging
-> Source: XPollination spec (10 documents), multi-agent operations (2026-01–02), Galarza (2026-02-17)
-> Version: 2.0.0 | Last updated: 2026-02-19
+> Source: XPollination spec (15 documents), multi-agent operations (2026-01–02), Galarza (2026-02-17), academic literature (A-MEM, Collaborative Memory, MemAct)
+> Version: 3.0.0 | Last updated: 2026-02-23
 > PDSA: [2026-02-19-agent-memory.pdsa.md](../../pdsa/2026-02-19-agent-memory.pdsa.md)
 
 ---
 
 ## Summary
 
-Agent memory is a filtering problem, not a storage problem. The XPollination spec says "thought traces are never deleted" (04-VECTOR-DB-AND-GRAPH-STRATEGY), but in practice, a 200-line MEMORY.md forces constant triage. Both approaches work — one defers filtering to retrieval time (vector search), the other does it at write time (human curation). The three-type framework (semantic/episodic/procedural) is useful for classification, but the real question is deeper: **do you remember conclusions or trajectories?**
+Agent memory is a filtering problem at small scale and a self-organization problem at large scale. A MEMORY.md with a 200-line cap forces write-time filtering — the agent decides what's important enough to persist. A vector database with pheromone decay provides read-time filtering — everything is stored, but only reinforced memories rise to the top. Both are valid strategies for different scales. The deeper question isn't "what to store" but "what becomes an attractor" — a memory that other memories cluster around and that survives the noise of diverse access patterns.
 
 ---
 
@@ -25,15 +25,36 @@ The Google Context Engineering framework classifies agent memory as:
 
 This classification is useful but incomplete. It answers "what kind of thing is this memory?" but not "is this memory worth keeping?"
 
-### The Deeper Question: Conclusions vs. Trajectories
+### The Three Thought Types
+
+The XPollination MVP spec (13-MVP-SPEC-THOUGHT-TRACING) adds a complementary classification based on provenance:
+
+- **Original** — a new thought, no parent. The first statement of an insight.
+- **Refinement** — builds on an existing thought, linked via `source_ids`. Adds nuance, challenges, or extends.
+- **Consolidation** — abstracts from multiple thoughts into a higher-order insight. The sleep consolidation product.
+
+This matters because refinements and consolidations carry **provenance chains** — they connect back to the originals that spawned them. A refinement without its sources loses the trajectory. A consolidation without its cluster loses the evidence.
+
+### The Deeper Question: Attractors, Not Categories
+
+The Hopfield-Attention-VectorDB equivalence (Ramsauer et al., ICLR 2021; detailed in 12-DEEP-DIVE) reveals that vector database retrieval, transformer attention, and Hopfield network pattern completion are the **same mathematical operation**. This reframes memory:
+
+- **Stored vectors** = memory attractors (energy minima in a landscape)
+- **Queries** = probes descending toward attractors
+- **Frequently queried regions** = deep energy wells (strong attractors)
+- **Rarely queried regions** = shallow wells that may not survive noise
+
+A memory worth keeping is one that becomes a **deep attractor** — something that multiple queries converge toward, that survives the noise of diverse access patterns. The diversity of thinkers IS the noise that selects for genuine, robust knowledge over coincidental overlap (Input-Driven Plasticity, Science Advances 2025).
+
+### Conclusions vs. Trajectories
 
 The XPollination spec articulates a principle that changes how you think about memory:
 
 > "The ability to reproduce how different thinkers arrived at convergence is itself the knowledge." (01-SYSTEM-VISION)
 
-Most agent memory systems store conclusions: "always do X", "never do Y", "the API is at Z". These are semantic memories — stable facts. But the spec argues that the **path** to the conclusion is equally valuable. A PDSA document that records Plan → Do → Study → Act preserves the trajectory. A MEMORY.md entry that says "git add: always specific files" preserves only the conclusion.
+Most agent memory systems store conclusions: "always do X", "never do Y". These are semantic memories — stable facts. But the spec argues that the **path** to the conclusion is equally valuable. A PDSA document that records Plan → Do → Study → Act preserves the trajectory. A MEMORY.md entry preserves only the conclusion.
 
-Both have value. Conclusions are compact and fast to load. Trajectories enable understanding *why* a conclusion exists and *when* it might need revision.
+Both have value. Conclusions are compact and fast to load (good for the 200-line cap). Trajectories enable understanding *why* a conclusion exists and *when* it might need revision (good for PDSA docs and task DNA).
 
 ---
 
@@ -72,12 +93,23 @@ Both have value. Conclusions are compact and fast to load. Trajectories enable u
 - **Duplicate information** — if it's in CLAUDE.md, don't repeat in MEMORY.md
 - **Speculative architecture** — "the system seems to work better when..." is noise until validated
 
+In pheromone terms: information that is never reinforced by access will naturally decay toward the floor (0.1 weight). The pheromone model provides automatic forgetting — you don't need to manually decide what to prune if the system tracks what gets used.
+
 ### The Filtering Test
 
 1. **Would forgetting this cause a repeated mistake?** → Tier 1 (must persist)
 2. **Will this be true next week?** → If no, it's session-ephemeral
 3. **Has this been confirmed across ≥2 interactions?** → If no, it's speculative (unless user-requested)
 4. **Does this already exist elsewhere?** → If yes, link — don't duplicate
+5. **Is this an original, refinement, or consolidation?** → Refinements and consolidations need their source links preserved
+
+### Emergent Knowledge: Co-Retrieval
+
+The most valuable memories may be ones no agent explicitly created. When two thoughts are repeatedly retrieved together in search results, the XPollination system logs this **co-retrieval** association. Over time, these reveal functional connections that exist in the domain but weren't documented by any individual:
+
+> "Thought A (organizational design) and Thought B (microservice architecture) are consistently co-retrieved — users working on org structure also need tech architecture insights."
+
+This emergent knowledge — associations discovered through usage, not authorship — is worth remembering precisely because no one thought to write it down.
 
 ---
 
@@ -99,6 +131,23 @@ This means our workflow system isn't just coordination — it's the multi-agent 
 
 **Implication:** Agents should be conscious that DNA updates ARE memory writes. The `findings` field is not just a status report — it's the episodic record of what was learned during the task.
 
+### The PDSA Format IS 90% of a Thought Unit
+
+Doc 11 (Agent Review) identified the structural parallel:
+
+| Spec Thought Unit (doc 03) | PDSA Document |
+|---|---|
+| `content` | The findings and conclusions |
+| `raw_input` | The original task description |
+| `metadata.speaker_id` | PDSA Agent |
+| `tracing.angle` | The research approach taken |
+| `tracing.iteration_depth` | Iteration count |
+| `tracing.confidence` | Implicit in STUDY section certainty |
+| `anchoring.truth_score` | **Missing** |
+| `resonance.convergence_zones` | Connections found in STUDY |
+
+The missing 10%: truth anchoring metadata, explicit confidence scoring, and formal angle tagging. If the PDSA template were extended with these three fields, every PDSA would automatically be a spec-compliant thought unit.
+
 ### From Our MEMORY.md (Quantitative Analysis)
 
 Our MEMORY.md contains ~200 lines across ~15 sections. Analyzing by memory type:
@@ -109,24 +158,26 @@ Our MEMORY.md contains ~200 lines across ~15 sections. Analyzing by memory type:
 | Semantic | ~35% | Project databases, pane map, GitHub auth, social buttons |
 | Episodic | ~25% | Lessons learned (dates, what happened, what changed) |
 
-The procedural and semantic entries are referenced almost every session. The episodic entries are referenced when a similar situation arises. This suggests the ~40/35/25 ratio is a natural equilibrium for operational agent memory.
+The procedural and semantic entries are referenced almost every session — they are deep attractors. The episodic entries are referenced when a similar situation arises — they are shallower attractors that may eventually decay if the situation doesn't recur.
 
-### From the Spec: "Never Delete" vs. 200-Line Cap
+### "Never Delete" vs. 200-Line Cap vs. Pheromone Decay
 
-The spec (04-VECTOR-DB-AND-GRAPH-STRATEGY) states: "Thought traces are never deleted — they represent the journey. Even superseded best practices remain in the graph as historical nodes."
+Three approaches to the filtering problem:
 
-Our practice is the opposite: MEMORY.md entries are actively pruned when they become stale or space is needed. This isn't a contradiction — it's a difference in retrieval mechanism:
+| Approach | Mechanism | Trade-off |
+|---|---|---|
+| Never delete (spec 04) | Store everything; filter at read time via vector search | Requires retrieval infrastructure; no information loss; noise accumulates |
+| 200-line cap (MEMORY.md) | Store only what fits; filter at write time via human curation | Simple; forces discipline; risks losing important information |
+| Pheromone decay (MVP spec) | Store everything; prominence self-regulates through access reinforcement + time decay | Best of both — no information loss, but active knowledge rises naturally |
 
-- **Never-delete + vector search** = filtering at READ time (the database holds everything; the search surfaces what's relevant)
-- **200-line cap + prompt injection** = filtering at WRITE time (memory holds only what's important; everything is surfaced every session)
+The pheromone model bridges the tension: `weight += 0.05` per access (ceiling 10.0), `weight *= 0.995` per hour without access (floor 0.1, ~11% decay/day). Memories that agents keep retrieving grow stronger. Memories nobody uses fade to near-zero prominence. No manual pruning needed.
 
-Both are valid. The upgrade path is clear: when 200 lines isn't enough to hold critical knowledge, graduate to vector-backed retrieval where filtering moves from write-time to read-time.
+### Academic References
 
-### From Galarza: Consolidation as Filtering
-
-Galarza identifies that "memory becomes noisy and unreliable over time" without active consolidation. A separate LLM instance handles "deciding what to keep, what to merge, and what to update."
-
-Our system has no automated consolidation. MEMORY.md is manually curated. This works at our current scale (~200 lines, ~4 projects) but creates risk: contradictions between MEMORY.md and CLAUDE.md can go undetected.
+- **A-MEM (NeurIPS 2025):** Zettelkasten-inspired agent memory where the agent itself decides how to organize, link, and evolve memories. Atomic notes with contextual descriptions, keywords, tags, and dynamic links.
+- **Collaborative Memory (ICML 2025):** Multi-user, multi-agent framework with private + shared memory tiers. Achieves 61% reduction in resource usage compared to isolated memory.
+- **MemAct (arXiv:2510.12635):** Memory operations (retain, compress, discard, insert) as learnable RL actions. MemAct-14B matches models 16× larger. Memory management can be LEARNED.
+- **EverMemOS (January 2026):** Biologically faithful engram lifecycle: episodic traces → semantic consolidation → reconstructive recollection.
 
 ---
 
@@ -136,12 +187,12 @@ Our system has no automated consolidation. MEMORY.md is manually curated. This w
 
 ```markdown
 # PDSA: Agent Memory Systems
-## STUDY
+## STUDY (Iteration 3)
 ### What Surprised Me
-1. The workflow system IS agent memory infrastructure.
-   Task DNA maps to the spec's thought unit schema.
-2. PDSA documents ARE thought traces.
-   Plan→Do→Study→Act preserves the path, not just the conclusion.
+1. Vector retrieval = attention = Hopfield pattern completion (same math).
+   Stored vectors are attractors. Queries descend the energy landscape.
+2. Diversity of thinkers IS the noise that selects for robust convergence.
+   IDP Hopfield: noise drives to deepest wells.
 ```
 
 ### Conclusion Memory (MEMORY.md Format — Compact)
@@ -153,6 +204,15 @@ Our system has no automated consolidation. MEMORY.md is manually curated. This w
 3. `git push`
 ```
 
+### Emergent Memory (Co-Retrieval — Highest Value)
+
+```
+co_retrieved_with: ["org-design-scaling-001", "microservice-arch-pattern-042"]
+# No agent wrote this association. Users working on org design
+# consistently also needed architecture patterns. The system
+# discovered this connection from usage.
+```
+
 ### Bad Memory (Conclusion Without Context)
 
 ```markdown
@@ -160,24 +220,30 @@ Our system has no automated consolidation. MEMORY.md is manually curated. This w
 The system works better with fewer agents. Use 3 panes, not 4.
 ```
 
-Why bad: No date. No reason. No trace of how this was learned. When circumstances change, there's no way to evaluate if this conclusion still holds.
+Why bad: No date. No reason. No trace of how this was learned. No source provenance. When circumstances change, there's no way to evaluate if this conclusion still holds. In pheromone terms, this memory has no reinforcement signal — it will decay without anyone noticing.
 
 ---
 
 ## Open Questions
 
-1. **When does write-time filtering fail?** At what knowledge volume does the 200-line cap become destructive rather than disciplining? What signals indicate it's time to add vector-backed retrieval?
-2. **Should task DNA be explicitly treated as memory?** If agents knew that `findings` is episodic memory, would they write it differently? Should we add `lessons_learned` as a formal DNA field?
-3. **Automated consolidation** — Can we build a periodic process that detects contradictions between MEMORY.md, CLAUDE.md, and task DNA? Galarza suggests a separate LLM; our system has no equivalent.
-4. **Per-agent memory** — The spec envisions per-thinker nodes (03). Should agents have individual MEMORY.md files alongside the shared ones? Would this reduce noise in the shared memory?
+1. **How do you implement pheromone decay for markdown memory?** The theoretical bridge between "200-line cap" and "pheromone weight" exists but has no practical implementation. Could MEMORY.md entries carry access-frequency metadata? Could git blame + search logs approximate access patterns?
+
+2. **When does write-time filtering fail?** At what knowledge volume does the 200-line cap become destructive rather than disciplining? Concrete signal: when agents routinely can't find information they need in MEMORY.md + topic files.
+
+3. **Should task DNA carry explicit memory-intent fields?** If agents knew that `findings` is episodic memory, would they write it differently? Should DNA include `lessons_learned`, `persist_to_memory`, `confidence_score`?
+
+4. **Can memory operations be learned?** MemAct shows RL can optimize memory management. Could XPollination agents learn when to store, compress, discard, or consolidate — optimized by downstream retrieval utility?
+
+5. **What is ρ_c for our system?** The stigmergic phase transition at ρ_c ≈ 0.23 (Khushiyant) determines when collective traces outperform individual memory. At what user density does XPollination's highway detection become more valuable than personal MEMORY.md?
 
 ---
 
 ## Related
 
-- [PDSA: Agent Memory Research](../../pdsa/2026-02-19-agent-memory.pdsa.md) — the research journey behind this document
-- [Synaptic Folder Structure](../knowledge-management/synaptic-folder-structure.md) — organizing knowledge files
-- [03-AGENT-GUIDELINES spec](../../spec/03-AGENT-GUIDELINES.md) — thought unit schema
-- [04-VECTOR-DB-AND-GRAPH-STRATEGY spec](../../spec/04-VECTOR-DB-AND-GRAPH-STRATEGY.md) — "never delete" principle
+- [PDSA: Agent Memory Research](../../pdsa/2026-02-19-agent-memory.pdsa.md) — the research journey (3 iterations)
+- [14-AGENT-CONTEXT](../../feedback/agent-memory/14-AGENT-CONTEXT.md) — consolidated XPollination vision
+- [12-DEEP-DIVE-ITER3](../../feedback/agent-memory/12-DEEP-DIVE-THINKING-INFRASTRUCTURE-ITER3.md) — Hopfield theory, pheromone model, stigmergy
+- [13-MVP-SPEC](../../feedback/agent-memory/13-MVP-SPEC-THOUGHT-TRACING.md) — buildable thought tracing spec
+- [11-SPEC-DOC](../../feedback/agent-memory/11-SPEC-DOC.md) — academic review with A-MEM, Collaborative Memory
 - [agent-memory-where.md](agent-memory-where.md) — storage architecture
 - [agent-memory-when.md](agent-memory-when.md) — lifecycle triggers
