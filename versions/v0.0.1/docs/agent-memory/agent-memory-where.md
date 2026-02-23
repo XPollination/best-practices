@@ -9,7 +9,7 @@
 
 ## Summary
 
-Agent memory storage falls into three practical tiers: what you use **today** (markdown files and structured task metadata), what to add **next** when markdown hits its limits (a vector database with self-regulating prominence), and the **full vision** where all storage mechanisms operate concurrently on every interaction. Most teams should start with markdown and only graduate upward when they hit concrete limitations — but they should understand the full landscape so they can design for future growth.
+Agent memory storage falls into three practical tiers: what you use **today** (markdown files and structured task metadata), what to add **next** when markdown hits its limits (a vector database with self-regulating prominence), and the **full vision** where all storage mechanisms operate concurrently on every interaction. The organizing insight across all tiers: **retrieval patterns ARE knowledge** — the system doesn't just store and fetch, it watches the flow of knowledge between agents and uses that flow to identify what matters. Most teams should start with markdown and only graduate upward when they hit concrete limitations — but they should understand the full landscape so they can design for future growth.
 
 ---
 
@@ -194,6 +194,18 @@ The XPollination spec (document 12, "Deep Dive: Thinking Infrastructure") descri
 
 **Key insight from doc 11 (Agent Review):** These layers are concurrent, not sequential. Even today, a markdown system runs layers 0, 4, and 5 — storage (files), reinforcement (manual curation), and consolidation (PDSA Study). Adding a vector database doesn't "upgrade" from markdown — it adds layers 1-3 and automates layers 4-5.
 
+#### Measurement Infrastructure: Geometric Dynamics
+
+How do you know if your memory system is *working*? Tacheny's "Geometric Dynamics of Agentic Loops" (arXiv:2512.10350) provides measurement tools by formalizing agent trajectories through embedding space as discrete dynamical systems with three regimes:
+
+- **Contractive** — convergence toward stable semantic attractors (the system is consolidating knowledge)
+- **Oscillatory** — cycling among attractors (the system is exploring related topics)
+- **Exploratory** — unbounded divergence (the system is generating novel connections)
+
+Key geometric indicators: local drift (step-to-step stability), global drift (cumulative departure from starting point), dispersion (spread of trajectory points), cluster persistence (stability of attractor regions).
+
+The unpublished multi-user extension relevant to agent memory: given N agents with individual trajectories through shared embedding space, track pairwise inter-trajectory distances over time. Decreasing distances = convergence. When multiple agents simultaneously enter contractive mode toward the same region = **collective convergence event** — the kind of signal that validates memory infrastructure is working.
+
 ---
 
 ## Evidence
@@ -220,7 +232,13 @@ The XPollination spec says thought traces should never be deleted (document 04).
 
 Research on stigmergic systems (Khushiyant, arXiv:2512.10166) shows a critical density threshold at ρ_c ≈ 0.23: below this user density, individual memory dominates; above it, shared environmental traces outperform individual memory by 36-41%.
 
-**Practical implication:** A 4-agent team is likely below this threshold. At that scale, invest in individual memory (MEMORY.md, topic files). Only add shared vector-DB-based features when you have enough agents/users for collective patterns to emerge.
+**Practical implication — being explicit about where we are:** Most multi-agent teams today (including our 4-agent system) are **below ρ_c**. This means:
+
+- **Right now:** Individual memory dominates. MEMORY.md, topic files, and PDSA docs are the correct primary investment. Collective features (pheromone highways, co-retrieval associations) would add infrastructure cost without sufficient traffic to generate meaningful patterns.
+- **What to watch for:** As you add agents/users to a shared vector database, monitor (a) unique contributors per week, (b) retrieval frequency per vector, (c) whether co-retrieval patterns stabilize or remain noisy. When these metrics show consistent collective patterns, you're approaching ρ_c.
+- **The threshold is not binary:** Stigmergic features don't suddenly "turn on." They become increasingly valuable as density increases. The 0.23 figure is from simulated environments; your system's effective threshold depends on query diversity and knowledge overlap.
+
+The collective features described in these documents (pheromone model, co-retrieval, highway detection) are **designed for the above-ρ_c regime**. Below it, they're theoretically sound but practically premature.
 
 ---
 
