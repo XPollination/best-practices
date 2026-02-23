@@ -1,49 +1,54 @@
 # Where Does Memory Go?
 
 > Status: emerging
-> Source: XPollination spec (10 documents, esp. 02, 04, 06, 09), multi-agent operations (2026-01–02), Galarza (2026-02-17)
-> Version: 2.0.0 | Last updated: 2026-02-19
+> Source: XPollination spec (15 documents), multi-agent operations (2026-01–02), Galarza (2026-02-17), MVP spec (doc 13), 8-layer architecture (doc 12)
+> Version: 3.0.0 | Last updated: 2026-02-23
 > PDSA: [2026-02-19-agent-memory.pdsa.md](../../pdsa/2026-02-19-agent-memory.pdsa.md)
 
 ---
 
 ## Summary
 
-Memory storage is a spectrum from "always loaded, human-readable markdown" to "vector-indexed, graph-connected, machine-queryable databases." The XPollination spec envisions a 5-layer architecture; our practice uses 2.5 layers effectively. The key insight: start at the bottom (markdown files), and graduate upward only when the current layer's limitations are actually hit — not when they're theoretically possible.
+Memory storage is not a stack you climb through — it's a set of **concurrent operations** that happen simultaneously at different scales. The XPollination spec describes an 8-layer architecture where each layer runs in parallel: the vector database stores, the observation layer watches, the pattern detector clusters, the pheromone system reinforces, and the sleep consolidation engine transforms. At the simplest scale (markdown files), you're running layers 0 and 1 manually. At the full vision, all 8 layers operate simultaneously on every interaction. The key insight: start at the bottom but **design the hooks for all layers from day one**.
 
 ---
 
 ## Context
 
-### The Spec's 5-Layer Vision
+### The 8-Layer Architecture (Concurrent, Not Sequential)
 
-The XPollination spec (documents 01-10) describes a comprehensive memory architecture:
+The XPollination spec (12-DEEP-DIVE-ITER3) describes 8 concurrent layers. Doc 11 (Agent Review) corrected a key misunderstanding from iteration 2: these are NOT a progression you climb through. They are simultaneous operations:
 
-| Layer | Spec Reference | What It Stores | How It's Accessed |
-|-------|---------------|----------------|-------------------|
-| 1. Working Memory | 02-CORE-ARCHITECTURE (Mirroring Loop) | Active conversation context | Automatic (in context window) |
-| 2. Session Memory | 03-AGENT-GUIDELINES (ConversationSession nodes) | Thought units within a session | Traversal by session_id |
-| 3. Structured Knowledge | 04-VECTOR-DB-AND-GRAPH (hybrid storage) | Embeddings + relationships + markdown | Vector search + graph traversal + file read |
-| 4. Truth Anchoring | 05-TRUTH-ANCHORING-SYSTEM | Scripture embeddings as fixed reference | Semantic similarity scoring |
-| 5. Distributed Knowledge | 09-DECENTRALIZATION-CHALLENGE | Lean central API + local processing | REST API queries from distributed agents |
+| Layer | What It Does | MVP Status | Our Practice |
+|-------|-------------|------------|-------------|
+| 0: Vector DB | Stores thought vectors with payloads | Qdrant with pheromone weights | MEMORY.md + topic files |
+| 1: Observation | Logs all queries and retrievals | Access logging middleware | Manual (who reads what is invisible) |
+| 2: Pattern Detection | Real-time clustering of query patterns | Deferred (DenStream) | None |
+| 3: Convergence | Multi-user convergence math | Deferred (Wasserstein) | None |
+| 4: Reinforcement | Stigmergic self-organization | Pheromone +0.05/-0.995 | Manual MEMORY.md curation |
+| 5: Sleep Consolidation | Episodic → semantic transformation | Deferred | PDSA Study phase (manual) |
+| 6: Knowledge Graph | Co-retrieval + relationship mapping | Co-retrieval logging | Markdown cross-references |
+| 7: RL Policy | Learned memory operations | Deferred | Human curation decisions |
+| 8: Visualization | Trajectory maps + highway views | /highways endpoint | None |
 
-### Our Actual Implementation
+The important framing: even in a markdown-only system, layers 0 (storage), 1 (observation — agents reading files), 4 (reinforcement — humans curating), and 5 (consolidation — PDSA Study) are active. The difference is scale and automation, not kind.
 
-| Layer | Implementation | Status |
-|-------|---------------|--------|
-| 1. Working Memory | Context window | Automatic |
-| 2. Session Memory | Handoff files + task DNA | Implemented (simpler format) |
-| 3. Structured Knowledge | MEMORY.md + topic files + CLAUDE.md | Partially (markdown only, no vector/graph) |
-| 4. Truth Anchoring | Protocol rules in CLAUDE.md (fixed points) | Analogy only |
-| 5. Distributed Knowledge | Best-practices API (Qdrant) exists | Not integrated as agent memory |
+### The Hopfield Energy Landscape
 
-The gap is in Layer 3: the spec envisions Vector DB + Knowledge Graph + Git working together. We have Git (markdown files) only. The vector database exists in the best-practices API but agents don't use it as a memory retrieval system.
+The vector database IS a Hopfield network (Ramsauer et al., ICLR 2021). Stored vectors are memory attractors — energy minima in a landscape. This gives physical intuition to storage:
+
+- **Deep energy well** = frequently accessed, highly connected memory (strong attractor)
+- **Shallow well** = rarely accessed, loosely connected (may not survive noise)
+- **Saddle point** = hub node connecting knowledge regions (HNSW hub highways)
+- **Basin of attraction** = cluster of related memories that queries converge toward
+
+When agents query the database, they're descending the energy landscape. The pheromone model reshapes this landscape: frequently accessed regions get deeper wells (stronger attractors), while untouched regions gradually flatten (decay toward floor).
 
 ---
 
 ## Pattern
 
-### Layer 1: MEMORY.md — The Always-Loaded Core
+### Layer 0: MEMORY.md — The Always-Loaded Core
 
 **Mechanism:** Markdown file injected into every agent prompt at session start. Our system uses a 200-line cap.
 
@@ -61,13 +66,13 @@ project/CLAUDE.md                               → project-specific protocols
 ~/.claude/projects/.../memory/<topic>.md         → detailed notes (read on demand)
 ```
 
-**The 200-line cap is a feature:** It forces constant triage — every new entry must justify displacing an existing one. This is write-time filtering: the discipline of deciding what's important enough to cost prompt tokens in every future session.
+**The 200-line cap as pheromone system:** The cap forces constant triage — every new entry must justify displacing an existing one. Entries that survive this pressure are the deepest attractors. This is write-time filtering: the discipline of deciding what's important enough to cost prompt tokens in every future session.
 
-**Galarza's confirmation:** "Markdown files work well — readable, debuggable, and require no infrastructure." The simplest storage that works is the right storage.
+**Galarza's confirmation:** "Markdown files work well — readable, debuggable, and require no infrastructure."
 
-### Layer 2: Task DNA — Multi-Agent Episodic Memory
+### Layer 1: Task DNA — Multi-Agent Episodic Memory
 
-**Discovery from PDSA research:** The PM system's task DNA is functionally equivalent to the spec's thought unit schema (03-AGENT-GUIDELINES). Task DNA stores:
+**Discovery from PDSA research:** The PM system's task DNA is functionally equivalent to the spec's thought unit schema (03-AGENT-GUIDELINES).
 
 | Field | Memory Function |
 |-------|----------------|
@@ -78,11 +83,14 @@ project/CLAUDE.md                               → project-specific protocols
 | `deliverables` | What was produced (semantic) |
 | `rework_iteration` | How many attempts (episodic) |
 
-**Access pattern:** Agents read DNA when claiming a task. The DNA IS the context — it contains everything the agent needs to understand the work, including the history of previous attempts.
+**Access pattern:** Agents read DNA when claiming a task. The DNA IS the context — everything the agent needs, including history of previous attempts.
 
-**Key difference from MEMORY.md:** Task DNA is task-scoped (only loaded when working that task). MEMORY.md is session-scoped (always loaded). DNA can be arbitrarily long; MEMORY.md is capped.
+**Thought types in DNA:** Task DNA captures all three types:
+- **Original:** initial task description
+- **Refinement:** findings added during work, rework reasons
+- **Consolidation:** final summary when task completes
 
-### Layer 3: Topic Files — Detailed Reference Library
+### Layer 2: Topic Files — Detailed Reference Library
 
 **Mechanism:** Individual markdown files organized by subject. Read on demand when MEMORY.md references them.
 
@@ -99,42 +107,99 @@ memory/
 
 **Advantage:** No prompt-token cost unless actually needed. Can be any length. Version-controlled via git.
 
-### Layer 4: PDSA Documents — Trajectory Preservation
+### Layer 3: PDSA Documents — Trajectory Preservation
 
 **PDSA documents are NOT just process artifacts — they're the trajectory memory the spec envisions.**
 
 The spec says: "The ability to reproduce how different thinkers arrived at convergence is itself the knowledge" (01-SYSTEM-VISION). PDSA documents capture exactly this:
 
-| PDSA Section | Memory Function |
-|---|---|
-| PLAN | Hypothesis and research scope (what did we think going in?) |
-| DO | What was attempted (the execution trace) |
-| STUDY | What was learned, what surprised us (the distilled episodic memory) |
-| ACT | What should change (the conclusions that may become MEMORY.md entries) |
+| PDSA Section | Memory Function | 8-Layer Equivalent |
+|---|---|---|
+| PLAN | Hypothesis and research scope | Layer 1 (observation of existing state) |
+| DO | What was attempted (execution trace) | Layer 0 (new vectors stored) |
+| STUDY | What was learned, what surprised us | Layer 5 (sleep consolidation) |
+| ACT | What should change (actionable conclusions) | Layer 4 (reinforcement of important patterns) |
 
-**Location:** `versions/v0.0.1/pdsa/*.pdsa.md` — version-controlled, searchable, human-readable.
+**PDSA = 90% of a thought unit.** The missing 10%: truth_score, explicit confidence, formal angle tagging. Extending the PDSA template with these three fields would make every PDSA automatically ingestible as a thought unit.
 
-### Layer 5: Vector Database — Semantic Search (When Markdown Isn't Enough)
+### Layer 4: Vector Database — Pheromone-Weighted Semantic Search
 
-**Our implementation:** Best-practices API with Qdrant (384-dim embeddings via HuggingFace all-MiniLM-L6-v2).
+**Implementation:** The MVP spec (13-MVP-SPEC) defines a single Qdrant collection (`thought_space`) with rich payloads.
+
+**Payload schema per vector point:**
+```json
+{
+  "contributor_id": "agent-alice-001",
+  "content": "The actual thought text",
+  "thought_type": "original | refinement | consolidation",
+  "source_ids": [],
+  "access_count": 0,
+  "accessed_by": [],
+  "co_retrieved_with": [],
+  "pheromone_weight": 1.0,
+  "tags": []
+}
+```
+
+**Pheromone model (self-regulating prominence):**
+- Each access: `weight += 0.05` (ceiling at 10.0)
+- Each hour without access: `weight *= 0.995` (floor at 0.1)
+- ~11% decay per day without reinforcement
+- Highways fade if not maintained by traffic — the system self-regulates
 
 **When you need this layer:**
 - Knowledge base exceeds what agents can find by reading files
 - Queries are fuzzy ("find anything related to authentication")
 - Cross-project knowledge needs to be surfaced
+- Pheromone decay is needed to prevent old knowledge from permanently dominating
 
-**The spec's vision (04-VECTOR-DB-AND-GRAPH-STRATEGY):** Four Qdrant collections (`thought_traces`, `convergence_zones`, `best_practices`, `scripture_anchors`). Every thought unit gets embedded. Real-time context injection on every utterance via `get_live_context()` (06-INTEGRATION-SPEC).
+### Layer 5: Co-Retrieval Graph — Emergent Knowledge
 
-**Current gap:** Our API stores best-practice documents but agents don't query it as part of their memory retrieval flow. The upgrade path: integrate API queries at session start or task start, alongside MEMORY.md loading.
+**This layer doesn't exist in isolation — it emerges from Layer 4's usage patterns.**
 
-### Layer 6 (Future): Knowledge Graph — Relationships
+When two vectors appear in the same search result set, they develop a co-retrieval association. The MVP tracks this in the `co_retrieved_with` payload field. Over time, these associations form a graph:
 
-**Not yet implemented.** The spec envisions Neo4j/FalkorDB for:
-- Tracing HOW conclusions were reached (`:EVOLVED_FROM` edges)
-- Detecting convergence across multiple thinkers (`:CONVERGES_AT`)
-- Truth anchoring (`:ANCHORED_IN` edges to scripture)
+```
+W(A,B) = PPMI(A,B) × Σ[exp(-λ(t_now - t_session))] × [1 - 1/log(|unique_users| + 1)]
+```
 
-**Current lightweight equivalent:** Cross-references in markdown files. Links between documents serve as manual relationship edges.
+Edge weight reflects: association strength, temporal relevance, and user diversity.
+
+**GraphRAG complement:** Microsoft's GraphRAG builds relationships from text content. Co-retrieval builds relationships from user behavior. When these overlap, confidence is high. When co-retrieval reveals associations that GraphRAG missed, that's **emergent knowledge** — the most valuable kind.
+
+**Current lightweight equivalent:** Cross-references in markdown files serve as manual relationship edges. Links between documents are the proto-graph.
+
+### Layer 6: Sleep Consolidation — Episodic → Semantic Transformation
+
+**Three production-ready patterns** (from 12-DEEP-DIVE-ITER3):
+
+**NREM Phase (Deep Consolidation):**
+1. Identify dense clusters in recently accessed vectors
+2. For each cluster above density threshold: generate LLM-driven abstract summary
+3. Embed the summary as a new vector, linked to source vectors
+4. Hebbian reinforcement: strengthen associations between co-accessed vectors
+
+**REM Phase (Creative Consolidation):**
+1. Identify weak cross-cluster bridges
+2. Generate hypothetical connections between knowledge regions
+3. Create exploratory bridge vectors that increase cross-cluster discoverability
+
+**Maintenance Phase:**
+- Index rebalancing, snapshot, access frequency statistics, eviction
+
+**Letta's dual-agent architecture** achieves 5× token reduction via sleep-time processing. **EverMemOS** implements a biologically faithful engram lifecycle. **Zettelkasten sleep-consolidation** operates on knowledge graph nodes with degree ≥ 2.
+
+**Our current equivalent:** The PDSA Study phase IS manual NREM consolidation (clustering specific experiences into abstract insights). The ACT phase IS manual REM (generating bridges between what was learned and what should change).
+
+### Layer 7 (Future): HNSW Hub Highways — Structural Infrastructure
+
+**Not directly controllable but architecturally significant.**
+
+In vector databases using HNSW indexes, hub nodes emerge naturally — points that are structurally central to multiple knowledge clusters. FlatNav research (ICML 2025 Workshop) shows 50-70% of early search visits hit hub highway nodes.
+
+These ARE the conceptual bridges — vectors semantically central to multiple domains. They're the equivalent of "gateway" memories that connect otherwise separate knowledge regions.
+
+**Current gap:** Qdrant doesn't expose HNSW traversal data (rejected feature request #2335). The pragmatic path is application-layer observation: log query vectors + returned result IDs, run periodic offline hub analysis.
 
 ---
 
@@ -150,19 +215,24 @@ Our system's evolution demonstrates the natural progression:
 | 2026-01 late | CLAUDE.md grew to 300+ lines | Accumulated lessons from multi-agent failures |
 | 2026-02 | MEMORY.md added (200-line cap) + topic files | CLAUDE.md was too large; needed index + detail separation |
 | 2026-02-17 | Best-practices API (Qdrant) deployed | Cross-project knowledge needed searchable access |
-| Future | Agent startup queries Qdrant | When 200-line MEMORY.md can't hold all critical knowledge |
+| Future | Agent startup queries Qdrant + pheromone weighting | When 200-line MEMORY.md can't hold all critical knowledge |
 
-Each upgrade was triggered by hitting an actual limitation, not by architectural ambition. This matches the principle: start simple, graduate when constraints bite.
+Each upgrade was triggered by hitting an actual limitation, not by architectural ambition.
 
 ### Git History IS the Never-Delete Layer
 
-The spec says thought traces should never be deleted (04). Our git history achieves this: every version of MEMORY.md, every CLAUDE.md edit, every PDSA document is preserved in git. The 200-line cap trims the ACTIVE memory, but the HISTORY is permanent. This is an accidental implementation of the spec's principle.
+The spec says thought traces should never be deleted (04). Our git history achieves this: every version of MEMORY.md, every CLAUDE.md edit, every PDSA document is preserved in git. The 200-line cap trims the ACTIVE memory, but the HISTORY is permanent.
 
-### Thomas's Decentralization Insight Applies to Memory
+### The Phase Transition Matters for Storage Strategy
 
-From spec 09 (DECENTRALIZATION-CHALLENGE), Thomas pivoted from centralized to distributed: "If every AI in the world queries one server, tokens burn away."
+From Khushiyant (arXiv:2512.10166): critical density ρ_c ≈ 0.23. Below this threshold, individual memory (MEMORY.md, CLAUDE.md) dominates — shared trace patterns don't have enough data to be useful. Above it, shared traces outperform individual memory by 36-41%.
 
-Applied to memory: agent memory SHOULD be local (MEMORY.md, CLAUDE.md, topic files). The central system (PM database, best-practices API) stores coordination data and collective knowledge. This is exactly our current architecture — it emerged naturally before the spec articulated it.
+**Architectural implication:**
+- Below ρ_c: Focus storage on individual files (MEMORY.md, topic files, PDSA docs)
+- Near ρ_c: Begin logging access patterns to shared vector DB
+- Above ρ_c: Full stigmergic mode — pheromone-weighted storage with highway detection
+
+Our 4-agent system (LIAISON, PDSA, DEV, QA) is likely below ρ_c. At this scale, individual memory correctly dominates.
 
 ---
 
@@ -175,7 +245,7 @@ project/
 ├── CLAUDE.md                  → project protocols
 ```
 
-One file. No overhead. This is enough to start.
+One file. Layers active: 0 (storage), 4 (manual reinforcement via editing). This is enough to start.
 
 ### Working System (Multi-Agent, Month 2)
 
@@ -184,39 +254,49 @@ project/
 ├── CLAUDE.md                  → shared protocols
 ├── .claude/
 │   └── memory/
-│       ├── MEMORY.md          → 200-line index
-│       ├── workflow.md        → workflow details
-│       └── debugging.md      → debugging patterns
-├── data/xpollination.db      → PM system (task DNA = episodic memory)
+│       ├── MEMORY.md          → 200-line index (layer 0)
+│       ├── workflow.md        → workflow details (layer 2)
+│       └── debugging.md       → debugging patterns (layer 2)
+├── data/xpollination.db       → PM system (layer 1: task DNA = episodic memory)
 └── versions/v0.0.1/
-    └── pdsa/                  → trajectory memory (PDSA documents)
+    └── pdsa/                  → trajectory memory (layer 3: PDSA documents)
 ```
 
-### Mature System (Cross-Project, Semantic Search)
+Layers active: 0 (markdown storage), 1 (task DNA), 2 (topic files), 3 (PDSA trajectory), 4 (manual curation), 5 (PDSA Study = manual consolidation).
+
+### Full Vision (Cross-Project, Semantic Search, Self-Organizing)
 
 Add to the above:
 ```
-Vector DB (Qdrant)             → semantic search across all knowledge
-REST API                       → agent query interface at session/task start
+Qdrant Vector DB               → layer 4: pheromone-weighted semantic search
+Co-retrieval graph              → layer 5: emergent associations from usage
+Sleep consolidation cron        → layer 6: NREM/REM periodic processing
+/highways API endpoint          → layer 8: visibility into emerging patterns
 ```
+
+All 8 layers operating concurrently.
 
 ---
 
 ## Open Questions
 
-1. **Integration trigger** — When should agents start querying the vector API as part of their memory flow? A concrete signal: when agents routinely can't find information they need in MEMORY.md + topic files.
-2. **Knowledge graph necessity** — At what relationship complexity do markdown cross-references break down? Current hypothesis: when convergence detection across 3+ independent analysis paths is needed.
-3. **Decentralized memory sync** — If multiple agents write to separate memory stores, how do you merge without conflicts? Git handles file-level merging; vector/graph stores have no equivalent.
-4. **DNA as formal memory** — Should task DNA include explicit memory-intent fields (e.g., `lessons_learned`, `persist_to_memory`)? This would make the PM system an explicit rather than accidental memory layer.
+1. **Concurrent layer hooks in practice** — How do you implement placeholder hooks for layers 3-7 in a markdown-only system? Is it sufficient to structure files in a way that's later ingestible by vector DB?
+
+2. **Pheromone decay for markdown** — Can the 200-line cap be enhanced with access-frequency metadata? Could agents annotate which MEMORY.md entries they actually used each session?
+
+3. **Co-retrieval without a vector DB** — Is there a markdown-world equivalent of co-retrieval tracking? Perhaps tracking which topic files are read together in the same session?
+
+4. **Knowledge graph necessity** — At what relationship complexity do markdown cross-references break down? Current hypothesis: when convergence detection across 3+ independent analysis paths is needed.
+
+5. **ρ_c calibration** — The 0.23 threshold is from simulated environments. What is the equivalent density for a shared vector database with real LLM agents?
 
 ---
 
 ## Related
 
-- [PDSA: Agent Memory Research](../../pdsa/2026-02-19-agent-memory.pdsa.md) — the research journey
-- [Synaptic Folder Structure](../knowledge-management/synaptic-folder-structure.md) — organizing knowledge files
-- [02-CORE-ARCHITECTURE spec](../../spec/02-CORE-ARCHITECTURE.md) — 5-phase data flow
-- [04-VECTOR-DB-AND-GRAPH-STRATEGY spec](../../spec/04-VECTOR-DB-AND-GRAPH-STRATEGY.md) — hybrid storage architecture
-- [09-DECENTRALIZATION-CHALLENGE spec](../../spec/09-DECENTRALIZATION-CHALLENGE.md) — central vs. distributed
+- [PDSA: Agent Memory Research](../../pdsa/2026-02-19-agent-memory.pdsa.md) — the research journey (3 iterations)
+- [14-AGENT-CONTEXT](../../feedback/agent-memory/14-AGENT-CONTEXT.md) — consolidated vision with MVP architecture
+- [12-DEEP-DIVE-ITER3](../../feedback/agent-memory/12-DEEP-DIVE-THINKING-INFRASTRUCTURE-ITER3.md) — 8-layer architecture, Hopfield formalism, sleep consolidation
+- [13-MVP-SPEC](../../feedback/agent-memory/13-MVP-SPEC-THOUGHT-TRACING.md) — payload schema, pheromone model, endpoint design
 - [agent-memory-what.md](agent-memory-what.md) — what is worth remembering
 - [agent-memory-when.md](agent-memory-when.md) — lifecycle triggers
