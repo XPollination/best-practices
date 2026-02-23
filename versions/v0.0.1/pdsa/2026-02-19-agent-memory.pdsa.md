@@ -3,7 +3,7 @@
 **Date:** 2026-02-19
 **Author:** PDSA Agent
 **Task:** best-practice-agent-memory
-**Status:** COMPLETE (iteration 3 — deep integration of 5 new source documents)
+**Status:** COMPLETE (iteration 4 — usability improvements after LIAISON review)
 
 ---
 
@@ -416,11 +416,36 @@ Memory operations (store, compress, discard, consolidate) can be LEARNED. MemAct
 
 ---
 
+---
+
+# ITERATION 4: Usability Improvements
+
+**Date:** 2026-02-23
+**Rework reason:** LIAISON review identified 5 specific improvements needed for document usability and standalone readability.
+
+---
+
+## Feedback → Changes (Iteration 4)
+
+| # | Feedback | Change Made |
+|---|----------|------------|
+| 1 | WHERE doc mixes practical and theoretical layers | Restructured around Today/Next Step/Full Vision tiers. 8-layer table moved to reference section. Day-1 and Month-2 setups lead the document. |
+| 2 | Documents assume system familiarity | Replaced "our system" / "our MEMORY.md" with generic framing + "Example from practice" / "In a multi-agent system..." context sentences. System-specific terms explained on first use. |
+| 3 | WHAT doc tiers unchanged from iter 2 | Rewrote tiers through attractor lens: Deep Attractors (survive noise, reach pheromone ceiling), Shallow Attractors (need reinforcement, hover 1.0-3.0), Ephemeral (decay to floor within days). |
+| 4 | WHEN doc has no setup guidance | Added "Minimal Viable Memory Writing Setup" section with prescriptive checklists for Day 1, Week 1, Month 1, Month 3+, Month 6+ milestones. |
+| 5 | Co-retrieval not grounded | Added explicit caveat: co-retrieval is "high-priority hypothesis, not established pattern." Proposed validation experiment (populate Qdrant with 15+ docs, multi-agent queries for 1 week, check co-retrieval edges vs explicit cross-refs). |
+
+### Process Note
+
+Iteration 4 was a usability pass, not a content pass. The theoretical depth from iteration 3 was correct — the issue was presentation: document organization, standalone readability, and actionable guidance. This is a common pattern: research depth comes first, then practical restructuring for the audience.
+
+---
+
 ## Deliverables
 
 | File | Description |
 |------|-------------|
-| `pdsa/2026-02-19-agent-memory.pdsa.md` | This document — the research journey (3 iterations) |
+| `pdsa/2026-02-19-agent-memory.pdsa.md` | This document — the research journey (4 iterations) |
 | `docs/agent-memory/agent-memory-what.md` | Best practice: what is worth remembering |
 | `docs/agent-memory/agent-memory-where.md` | Best practice: storage architecture |
 | `docs/agent-memory/agent-memory-when.md` | Best practice: lifecycle triggers |
