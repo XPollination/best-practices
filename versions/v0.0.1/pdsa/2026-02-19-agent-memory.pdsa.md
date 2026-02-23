@@ -3,7 +3,7 @@
 **Date:** 2026-02-19
 **Author:** PDSA Agent
 **Task:** best-practice-agent-memory
-**Status:** COMPLETE (iteration 2 — rework after initial submission lacked depth)
+**Status:** COMPLETE (iteration 3 — deep integration of 5 new source documents)
 
 ---
 
@@ -201,11 +201,226 @@ Based on this research, I produced:
 
 ---
 
+---
+
+# ITERATION 3: Deep Integration of New Source Material
+
+**Date:** 2026-02-23
+**Rework reason:** Thomas provided 5 new source documents (~1700 lines) with substantially deeper research: Hopfield network theory, pheromone models, stigmergic phase transitions, MVP specification, academic literature review, and an 8-layer architecture vision. The existing deliverables needed to integrate this material.
+
+---
+
+## PLAN (Iteration 3)
+
+### New Sources
+
+| Doc | Title | Lines | Key Contribution |
+|-----|-------|-------|-----------------|
+| 15 | Framing Guide (docs 01-11) | ~203 | Map of how original specs feed into MVP; reading priorities per role |
+| 14 | Agent Context (consolidated) | ~195 | "Retrieval patterns ARE knowledge"; mining metaphor; MVP summary; glossary |
+| 13 | MVP Spec: Thought Tracing | ~611 | Buildable spec with code: /think, /retrieve, /highways; pheromone model; payload schema |
+| 12 | Deep Dive Iter 3 | ~497 | Hopfield-Attention-VectorDB unification; geometric dynamics; stigmergic ρ_c ≈ 0.23; sleep consolidation; 8-layer architecture |
+| 11 | Agent Review (PDSA Memory) | ~187 | A-MEM, Collaborative Memory, MemAct references; concurrent-not-sequential correction; PDSA = 90% of thought unit |
+
+### Hypothesis (Iteration 3)
+
+The iteration 2 PDSA treated the spec's architecture as an aspirational ceiling and markdown files as the practical floor. The new material suggests a different framing: the spec vision is **convergent with cutting-edge research** (not aspirational), and the practical markdown implementation is the **first layer of a concurrent architecture** (not a separate thing). The pheromone model provides the missing bridge — a self-regulating mechanism that works at every scale from MEMORY.md to vector databases.
+
+---
+
+## DO (Iteration 3)
+
+### Phase 1: Reading the Framing Guide (doc 15)
+
+The framing guide reveals that docs 01-11 are not a specification — they're **three conversation loops** that trace Thomas's thinking in real-time:
+
+- **Loop 1** (01-07): Vision crystallizes. What is XPollination? How does it work?
+- **Loop 2** (08-10): Scale challenge. How do other AIs connect? Why does centralization break?
+- **Loop 3** (11-12+): Research grounding. How does this compare to academic work?
+
+Key insight: the specification itself is a thought trace. The documents are not describing a system from the outside — they ARE the mirroring loop they describe.
+
+### Phase 2: The Core Insight from doc 14
+
+> "When multiple agents query a shared vector database, their retrieval patterns ARE knowledge."
+
+This reframes everything. Memory is not just "what you store" — it's "how stored things flow between agents." The mining metaphor: contributing a thought is like mining a token. When others retrieve and build on it, value flows downstream. The proof-of-work is genuine intellectual contribution, validated by actual usage.
+
+The MVP proves 5 things:
+1. Thoughts become discoverable through semantic proximity (no explicit sharing)
+2. Usage is tracked (who accessed what)
+3. Highways form (frequently used thoughts become prominent)
+4. Provenance is preserved (every thought traces back to its originator)
+5. Refinements link back to source contributions
+
+### Phase 3: The MVP Spec (doc 13) — Concrete Architecture
+
+Three endpoints define the entire system:
+
+- **POST /think** — contribute a thought (embed + store with provenance, initial pheromone = 1.0)
+- **POST /retrieve** — search with tracing (log access, update co-retrieval, reinforce pheromone +0.05)
+- **GET /highways** — see emerging thought highways (access_count × unique_users)
+
+The **pheromone model** is the key self-regulation mechanism:
+- Each access: weight += 0.05 (ceiling at 10.0)
+- Each hour without access: weight *= 0.995 (floor at 0.1)
+- ~11% decay per day without reinforcement
+- Highways fade if not maintained by traffic
+
+This directly addresses iteration 2's "selectivity vs. completeness" tension: you don't need to choose between "never delete" and "200-line cap." Pheromone weight provides a continuous spectrum of memory prominence. Everything is kept, but only reinforced memories rise to the top.
+
+The **co-retrieval** tracking is equally significant: when two thoughts appear in the same search result set, that association is logged. Repeated co-retrieval reveals functional connections that no individual agent explicitly created. This is **emergent knowledge** — the most valuable kind.
+
+### Phase 4: Theoretical Foundation (doc 12)
+
+**Hopfield-Attention-VectorDB Equivalence:**
+
+The deepest insight: vector database retrieval, transformer attention, and Hopfield network pattern completion are the **same mathematical operation** (Ramsauer et al., ICLR 2021):
+
+```
+ξ_new = X · softmax(β · X^T · ξ)
+```
+
+A vector database is a Hopfield network. Stored vectors are memory attractors. Queries are probes descending the energy landscape. Hub nodes are saddle points connecting basins. Frequently queried regions are deep energy wells.
+
+**Input-Driven Plasticity (IDP):** Under noise, the IDP model drives retrieval to the DEEPEST energy wells. Translation: **the diversity of multiple thinkers IS the noise that ensures only genuine convergence survives.** Shallow overlap (coincidental) gets washed out; deep convergence (genuine shared insight) gets reinforced.
+
+**Geometric Dynamics (Tacheny, arXiv:2512.10350):** Formalizes agentic loops as dynamical systems with three regimes:
+1. **Contractive** — convergence toward stable attractors (local similarity > 0.85)
+2. **Oscillatory** — cycling among attractors
+3. **Exploratory** — unbounded divergence
+
+Nobody has applied this framework to **multiple simultaneous users** — this is XPollination's novel contribution.
+
+**Stigmergic Phase Transition (Khushiyant, arXiv:2512.10166):** Critical density ρ_c ≈ 0.23. Below it, individual memory dominates. Above it, shared traces outperform individual memory by 36-41%. XPollination's collective features only activate meaningfully when user density crosses this threshold.
+
+Critical finding: "Traces without memory fail completely" — raw retrieval counts are meaningless without cognitive infrastructure to interpret them.
+
+**Sleep Consolidation:** Three production-ready patterns identified:
+- Letta's dual-agent architecture (5× token reduction via sleep-time processing)
+- EverMemOS's engram lifecycle (episodic → semantic transformation via incremental clustering)
+- Zettelkasten sleep-consolidation (degree ≥ 2 nodes → LLM abstraction → insight nodes)
+
+**8-Layer Architecture:** Layers 0-8 are concurrent operations, not a progression:
+0. Vector DB (Qdrant) — storage substrate
+1. Observation — log all queries and retrievals
+2. Pattern Detection — streaming micro-clusters (DenStream + SRRDBSCAN)
+3. Convergence — multi-user convergence math (Sliced Wasserstein + Bayesian changepoint)
+4. Reinforcement — stigmergic self-organization (pheromones + Hebbian updates)
+5. Sleep Consolidation — episodic → semantic transformation (NREM + REM)
+6. Knowledge Graph — co-retrieval + GraphRAG hybrid
+7. RL Policy — learned memory operations (DCPO-style)
+8. Visualization — trajectory maps + highway views
+
+### Phase 5: Agent Review (doc 11) — Critical Corrections
+
+Doc 11 is an external review of iteration 2's PDSA. Five challenges:
+
+1. **Scope too narrow** — missed A-MEM (NeurIPS 2025), Collaborative Memory (ICML 2025, 61% resource reduction), MemoryArena (Feb 2026), ICLR 2026 MemAgents Workshop
+2. **Layers are concurrent, not sequential** — the spec's 5 layers aren't a progression you climb through; they're simultaneous operations on every interaction
+3. **Consolidation gap deeper than realized** — needs active deduplication, contradiction resolution, relevance decay, provenance tracking, sleep consolidation
+4. **PDSA format IS 90% of a thought unit** — missing only: truth_score, explicit confidence, formal angle tagging
+5. **The rework itself is a thought trace** — iteration 1→2→3 IS the mirroring loop
+
+### Cross-Reference: What Changes From Iteration 2
+
+| Iteration 2 Understanding | Iteration 3 Correction |
+|---|---|
+| 5-layer architecture as floor→ceiling progression | Concurrent operations, all active from day one |
+| "Never delete" vs "200-line cap" as binary tension | Pheromone decay provides continuous spectrum |
+| No automated consolidation possible yet | Sleep consolidation has production-ready patterns |
+| Spec vision is aspirational ceiling | Spec vision is convergent with cutting-edge research |
+| Our system "accidentally" implements spec patterns | Our system implements spec patterns AT A DIFFERENT SCALE |
+| Memory is stored knowledge | Retrieval patterns ARE knowledge; co-retrieval = emergent knowledge |
+| Single-agent memory problem | Phase transition at ρ_c ≈ 0.23 determines individual vs collective mode |
+
+---
+
+## STUDY (Iteration 3)
+
+### What Surprised Me
+
+1. **The mathematical unification is real.** Vector retrieval = attention = Hopfield pattern completion isn't a metaphor — it's a proven equivalence (Ramsauer et al., ICLR 2021). This means the entire field of associative memory theory applies to vector databases. Every insight about Hopfield energy landscapes translates directly to how knowledge organizes in Qdrant.
+
+2. **Diversity IS the noise that selects for robustness.** The IDP finding — that noise drives to deepest energy wells — means multi-user systems are INHERENTLY better at identifying genuine knowledge than single-user systems. This isn't just philosophically appealing; it's mathematically grounded.
+
+3. **The phase transition gives concrete guidance.** ρ_c ≈ 0.23 means XPollination should design for two modes: below threshold (individual memory dominates, focus on personal knowledge management) and above threshold (collective features activate, access patterns reshape retrieval). This is actionable architecture.
+
+4. **Sleep consolidation already has production-ready implementations.** I treated consolidation as a future dream in iteration 2. Letta's dual-agent architecture and EverMemOS's engram lifecycle are working today. The NREM/REM metaphor isn't poetic — it maps to concrete operations (cluster abstraction + bridge generation).
+
+5. **Co-retrieval is the most underappreciated storage mechanism.** When two vectors are repeatedly retrieved together, they develop a functional association that nobody explicitly created. This emergent knowledge — the GAP between what text says entities are related (GraphRAG) and what users actually need together (co-retrieval) — is the most valuable signal in the system.
+
+6. **Our PDSA process IS the mirroring loop.** Doc 11 points out that the rework from iteration 1→2→3 is itself a thought trace demonstrating the XPollination process working. We're not just documenting memory theory — we're DOING the memory consolidation the spec describes.
+
+### Key Connections Found
+
+**Pheromone Model ↔ MEMORY.md 200-Line Cap:**
+The 200-line cap is a crude pheromone system. Entries that are frequently accessed (referenced every session) stay. Entries that aren't reinforced get pruned when space is needed. The pheromone model formalizes this: continuous reinforcement/decay replaces binary keep/delete.
+
+**Sleep Consolidation ↔ PDSA Study Phase:**
+The PDSA Study phase IS NREM consolidation. It clusters specific experiences (DO phase) into abstract insights. The ACT phase IS REM — it generates bridges between what was learned and what should change. We've been doing sleep consolidation manually all along.
+
+**Stigmergic Phase Transition ↔ Multi-Agent Operations:**
+Our 4-agent system (LIAISON, PDSA, DEV, QA) is likely below ρ_c for collective trace benefits. At this scale, individual agent memory (CLAUDE.md, MEMORY.md) correctly dominates. Collective features (access pattern tracking, highway detection) would only add value with more agents or users.
+
+**Hopfield Attractors ↔ MEMORY.md Entries:**
+Each MEMORY.md entry is an attractor in the agent's knowledge landscape. Strong attractors (frequently needed rules like git protocol) are deep energy wells. Weak attractors (rarely-referenced trivia) are shallow wells that may not survive noise. The 200-line cap acts as a selection pressure favoring deep attractors.
+
+**MemAct RL ↔ Agent Decision-Making:**
+Memory operations (store, compress, discard, consolidate) can be LEARNED. MemAct-14B matches models 16× larger by learning efficient memory strategies. Future XPollination agents could learn WHICH thoughts to store, WHERE to store them, and WHEN to consolidate — optimized by actual downstream utility.
+
+### What Gaps Remain
+
+1. **No implementation of continuous pheromone model for markdown memory.** The theoretical bridge between "200-line cap" and "pheromone decay" exists but has no practical implementation. Could be approximated with access-frequency metadata on MEMORY.md entries.
+
+2. **Sleep consolidation needs scheduling infrastructure.** Production patterns exist (Letta, EverMemOS) but our system has no equivalent of "downtime" for consolidation. The `/compact` trigger is close but reactive, not proactive.
+
+3. **Co-retrieval tracking doesn't exist in our markdown world.** We don't know which MEMORY.md entries are read together. Git blame can approximate authorship provenance but not access patterns.
+
+4. **ρ_c threshold hasn't been validated for our specific system.** The 0.23 figure is from Khushiyant's simulated environment. The equivalent density for a shared vector database with real agents is unknown.
+
+---
+
+## ACT (Iteration 3)
+
+### What Should Change in the Best Practice Documents
+
+**agent-memory-what.md:**
+- Add Hopfield/attractor framing: memories worth keeping are those that become deep energy wells
+- Add pheromone model: memory value is self-regulating through reinforcement + decay
+- Add co-retrieval: associations worth remembering include EMERGENT ones (co-retrieved, not explicitly created)
+- Add thought types: original / refinement / consolidation
+- Reference A-MEM, Collaborative Memory, MemAct
+- Reframe "what not to remember" through pheromone decay = automatic forgetting
+
+**agent-memory-where.md:**
+- Correct "5-layer progression" to concurrent architecture
+- Add 8-layer vision with clear MVP vs post-MVP distinction
+- Add pheromone-weighted storage (continuous prominence, not binary keep/delete)
+- Add co-retrieval graph as emergent storage layer
+- Add HNSW hub highways as structural infrastructure
+- Add sleep consolidation as a storage transformation mechanism
+
+**agent-memory-when.md:**
+- Add pheromone reinforcement as continuous trigger (every retrieval = memory write)
+- Add sleep consolidation as periodic trigger (NREM + REM phases)
+- Add stigmergic phase transition: when collective triggers activate (ρ_c ≈ 0.23)
+- Add Letta sleep-time compute pattern
+- Deepen pre-compaction with EverMemOS engram lifecycle
+
+### Process Improvements
+
+- **Research depth improved through iteration.** Iteration 1 took ~10 minutes and produced shallow reformatting. Iteration 2 took ~45 minutes and produced genuine insights (task DNA = thought units). Iteration 3 digested ~1700 lines of new material across 5 documents and produced structural corrections (concurrent not sequential) and new theoretical grounding (Hopfield, pheromone, stigmergy). The PDSA rework cycle works — each iteration builds on the last.
+
+- **The rework process itself demonstrates the spec.** Three iterations of the same PDSA document is a mirroring loop. Each iteration reflects back more clearly. This PDSA should be the seed data for XPollination's first thought trace when the system is built.
+
+---
+
 ## Deliverables
 
 | File | Description |
 |------|-------------|
-| `pdsa/2026-02-19-agent-memory.pdsa.md` | This document — the research journey |
+| `pdsa/2026-02-19-agent-memory.pdsa.md` | This document — the research journey (3 iterations) |
 | `docs/agent-memory/agent-memory-what.md` | Best practice: what is worth remembering |
 | `docs/agent-memory/agent-memory-where.md` | Best practice: storage architecture |
 | `docs/agent-memory/agent-memory-when.md` | Best practice: lifecycle triggers |
