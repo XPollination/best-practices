@@ -9,7 +9,7 @@
 
 ## Summary
 
-Memory writing happens at three timescales: **continuous** (every retrieval reinforces pheromone, every access gets logged), **event-driven** (session boundaries, user requests, context pressure), and **periodic** (sleep consolidation transforms episodic traces into semantic knowledge). The critical tension: writing too early captures noise, writing too late loses knowledge. The pheromone model resolves this — continuous reinforcement means the system is ALWAYS writing, but prominence self-regulates through decay. The PDSA Study phase remains the highest-value discrete extraction mechanism — it forces structured reflection at a natural stopping point.
+Memory writing happens at three timescales: **continuous** (every retrieval reinforces pheromone, every access gets logged), **event-driven** (session boundaries, user requests, context pressure), and **periodic** (sleep consolidation transforms episodic traces into semantic knowledge). The organizing insight: **retrieval patterns ARE knowledge** — every retrieval is both a read AND a write, because the system uses access patterns to identify what matters. The pheromone model makes this explicit: continuous reinforcement means the system is ALWAYS writing, and prominence self-regulates through decay. The PDSA Study phase remains the highest-value discrete extraction mechanism — it forces structured reflection at a natural stopping point.
 
 ---
 
