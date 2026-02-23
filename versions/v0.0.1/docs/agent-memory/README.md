@@ -18,7 +18,7 @@ How AI agents persist knowledge across sessions — what to remember, where to s
 
 | File | What it covers |
 |------|---------------|
-| [2026-02-19-agent-memory.pdsa.md](../../pdsa/2026-02-19-agent-memory.pdsa.md) | Five iterations of deepening research: (1) initial spec reading, (2) cross-referencing with lived experience, (3) integrating 5 new source documents with Hopfield theory and 8-layer architecture, (4) usability restructuring and implementation checklists, (5) polish and consistency pass |
+| [2026-02-19-agent-memory.pdsa.md](../../pdsa/2026-02-19-agent-memory.pdsa.md) | Six iterations of deepening research: (1) initial spec reading, (2) cross-referencing with lived experience, (3) integrating 5 new source documents with Hopfield theory and 8-layer architecture, (4) usability restructuring and implementation checklists, (5) polish and consistency pass, (6) Key Takeaways for 30-second readability |
 
 ## Key Insights
 
