@@ -160,7 +160,7 @@ The `context` field modifies behavior in three concrete ways:
 
 | Field | Location | Description |
 |-------|----------|-------------|
-| `result.response` | Agent reads this | Natural language summary of retrieved thoughts. For MVP: concatenate top-3 `content` fields with attribution. |
+| `result.response` | Agent reads this | Natural language summary. MVP format: `"[1] {contributor}: {content_preview} (score: {score})\n[2] ..."` for top-3 results. Prefix with disambiguation or guidance text if applicable. |
 | `result.sources` | Agent reads this | Array of retrieved thoughts with IDs, contributors, scores, and first 80 chars of content. |
 | `result.highways_nearby` | Agent reads this | Strings describing high-traffic thoughts related to the query. Empty array if none. |
 | `result.disambiguation` | Agent reads this | Non-null when query is ambiguous (see Section 3.8). |
@@ -228,6 +228,29 @@ This means: "I contributed something after you showed me these thoughts" = impli
   "thought_id": "uuid-1",
   "signal": "useful"
 }
+```
+
+### 3.11 Orchestration Flow — How /memory Composes Its Response
+
+This is the exact sequence the `/memory` handler executes:
+
+```
+1. Validate request (Section 3.3 rules) → 400 if invalid
+2. Generate session_id if not provided (crypto.randomUUID())
+3. Check contribution threshold (Section 3.5)
+   → If met: call think() with prompt as content, agent_id as contributor
+   → Store thought_id for trace
+4. Embed prompt (with context concatenation if context provided — Section 3.6)
+5. Call retrieve() with embedding, agent_id, session_id, filter_tags
+6. Check disambiguation (Section 3.8): 10+ results AND 3+ tags?
+   → If yes: group by tags, set result.disambiguation, override response text
+7. Check guided intake (Section 3.9): agent_id has 0 query_log entries?
+   → If yes: set result.guidance, add "onboard" to trace.operations
+8. Check implicit feedback (Section 3.10): session_id matches previous query?
+   → If yes: apply +0.02 bonus to previously returned thoughts
+9. Query highways: access_count >= 3 AND unique_users >= 2
+   → Format as strings for result.highways_nearby
+10. Format response (result + trace) and return 200
 ```
 
 ---
@@ -299,8 +322,9 @@ These are called by the `/memory` endpoint. Agents never call them directly. The
    - Append `agent_id` to `accessed_by` (deduplicated)
    - Append `{"user_id": agent_id, "timestamp": now(), "session_id": session_id}` to `access_log` (cap at 100 entries — remove oldest when full)
 3. Update `co_retrieved_with` for ALL pairs in the result set:
-   - For thoughts A and B both in results: increment co-retrieval count for the pair
-   - Cap at 50 entries per thought — remove lowest-count pair when full
+   - For thoughts A and B both in results: if B's ID is already in A's `co_retrieved_with`, increment its count. Otherwise, append `{"thought_id": "B-uuid", "count": 1}`. Do the same for B with A's ID.
+   - Cap at 50 entries per thought. When full, remove the entry with the lowest `count`.
+   - Structure per entry: `{"thought_id": "uuid", "count": N}`
 4. Insert row into SQLite `query_log`
 5. Return array of results with `thought_id`, `content`, `contributor_name`, `score`, `pheromone_weight`, `tags`
 
@@ -375,7 +399,7 @@ These are called by the `/memory` endpoint. Agents never call them directly. The
   "co_retrieved_with": [],
   "pheromone_weight": 1.0,
 
-  "knowledge_space_id": "ks-default"
+  "knowledge_space_id": "ks-default"  // Always "ks-default" for MVP. Field exists for post-MVP multi-space support.
 }
 ```
 
