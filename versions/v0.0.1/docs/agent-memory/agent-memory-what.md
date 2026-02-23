@@ -236,21 +236,21 @@ Why bad: No date. No reason. No trace of how this was learned. No source provena
 
 ## Open Questions
 
-1. **How do you implement pheromone decay for markdown memory?** The theoretical bridge between "200-line cap" and "pheromone weight" exists but has no practical implementation. Could MEMORY.md entries carry access-frequency metadata? Could git blame + search logs approximate access patterns?
+1. **How do you implement pheromone decay for markdown memory?** The theoretical bridge between "200-line cap" and "pheromone weight" exists but has no practical implementation. Could memory file entries carry access-frequency metadata? Could git blame + search logs approximate access patterns?
 
-2. **When does write-time filtering fail?** At what knowledge volume does the 200-line cap become destructive rather than disciplining? Concrete signal: when agents routinely can't find information they need in MEMORY.md + topic files.
+2. **When does write-time filtering fail?** At what knowledge volume does a 200-line cap become destructive rather than disciplining? Concrete signal: when agents routinely can't find information they need.
 
-3. **Should task DNA carry explicit memory-intent fields?** If agents knew that `findings` is episodic memory, would they write it differently? Should DNA include `lessons_learned`, `persist_to_memory`, `confidence_score`?
+3. **Should task metadata carry explicit memory-intent fields?** If agents knew that `findings` is episodic memory, would they write it differently? Should task schemas include `lessons_learned`, `persist_to_memory`, `confidence_score`?
 
-4. **Can memory operations be learned?** MemAct shows RL can optimize memory management. Could XPollination agents learn when to store, compress, discard, or consolidate — optimized by downstream retrieval utility?
+4. **Can memory operations be learned?** MemAct shows RL can optimize memory management. Could agents learn when to store, compress, discard, or consolidate — optimized by downstream retrieval utility?
 
-5. **What is ρ_c for our system?** The stigmergic phase transition at ρ_c ≈ 0.23 (Khushiyant) determines when collective traces outperform individual memory. At what user density does XPollination's highway detection become more valuable than personal MEMORY.md?
+See also: [co-retrieval validation experiment](agent-memory-where.md#open-questions) | [stigmergic activation detection](agent-memory-when.md#open-questions) | [pheromone tuning](agent-memory-where.md#open-questions)
 
 ---
 
 ## Related
 
-- [PDSA: Agent Memory Research](../../pdsa/2026-02-19-agent-memory.pdsa.md) — the research journey (3 iterations)
+- [PDSA: Agent Memory Research](../../pdsa/2026-02-19-agent-memory.pdsa.md) — the research journey (4 iterations)
 - [14-AGENT-CONTEXT](../../feedback/agent-memory/14-AGENT-CONTEXT.md) — consolidated XPollination vision
 - [12-DEEP-DIVE-ITER3](../../feedback/agent-memory/12-DEEP-DIVE-THINKING-INFRASTRUCTURE-ITER3.md) — Hopfield theory, pheromone model, stigmergy
 - [13-MVP-SPEC](../../feedback/agent-memory/13-MVP-SPEC-THOUGHT-TRACING.md) — buildable thought tracing spec
