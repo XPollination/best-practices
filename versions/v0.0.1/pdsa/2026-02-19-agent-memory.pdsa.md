@@ -3,7 +3,7 @@
 **Date:** 2026-02-19
 **Author:** PDSA Agent
 **Task:** best-practice-agent-memory
-**Status:** COMPLETE (iteration 6 — Key Takeaways sections added for 30-second readability)
+**Status:** COMPLETE (iteration 8 — trivium rework: 8 directions across Grammar/Dialectic/Rhetoric)
 
 ---
 
@@ -606,12 +606,36 @@ Who are these for? A solo developer? A multi-agent team? An XPollination archite
 
 ---
 
+---
+
+# ITERATION 8: Trivium Rework — 8 Directions
+
+**Date:** 2026-02-23
+**Rework reason:** LIAISON trivium reflection (iteration 7) identified 8 directions across Grammar/Dialectic/Rhetoric.
+
+---
+
+## Feedback → Changes (Iteration 8)
+
+| # | Direction | Trivium | Change Made |
+|---|-----------|---------|------------|
+| 1 | Add "Why This Matters" opening | Rhetoric | README: added problem statement (knowledge silos, context loss), vision (self-organizing knowledge flow), and spec quote |
+| 2 | Promote "retrieval patterns ARE knowledge" | Rhetoric | Threaded into Summary sections of all 3 docs as organizing insight |
+| 3 | Add XPollination novel contributions | Grammar | README: added 7-item list from doc 12 "What Is Genuinely Novel Here" |
+| 4 | Capture mining/economic metaphor | Grammar | README: added mining metaphor paragraph with provenance tracking as foundation |
+| 5 | Sharpen co-retrieval dialectic | Dialectic | WHAT doc: replaced caveat with dialectic — embedding proximity vs genuine emergence, what would disprove it |
+| 6 | Resolve below ρ_c explicitly | Dialectic | WHERE doc: explicit "we are below threshold" with what that means now, what to watch for, and why collective features are premature |
+| 7 | Add Tacheny geometric dynamics | Grammar | WHERE doc: added measurement infrastructure subsection under Full Vision — 3 regimes, 4 indicators, multi-user extension |
+| 8 | State trajectory/conclusion design decision | Dialectic | WHAT doc: added "Design Decision" subsection — conclusions in MEMORY.md, trajectories in PDSA docs, both in task metadata, explicitly stating this IS the architecture |
+
+---
+
 ## Deliverables
 
 | File | Description |
 |------|-------------|
-| `pdsa/2026-02-19-agent-memory.pdsa.md` | This document — the research journey (7 iterations including trivium reflection) |
+| `pdsa/2026-02-19-agent-memory.pdsa.md` | This document — the research journey (8 iterations including trivium reflection + rework) |
 | `docs/agent-memory/agent-memory-what.md` | Best practice: what is worth remembering |
 | `docs/agent-memory/agent-memory-where.md` | Best practice: storage architecture |
 | `docs/agent-memory/agent-memory-when.md` | Best practice: lifecycle triggers |
-| `docs/agent-memory/README.md` | Topic navigation with Quick Start |
+| `docs/agent-memory/README.md` | Topic navigation with Why This Matters + novel contributions |
