@@ -9,7 +9,7 @@
 
 ## Summary
 
-Agent memory is a filtering problem at small scale and a self-organization problem at large scale. A MEMORY.md with a 200-line cap forces write-time filtering — the agent decides what's important enough to persist. A vector database with pheromone decay provides read-time filtering — everything is stored, but only reinforced memories rise to the top. Both are valid strategies for different scales. The deeper question isn't "what to store" but "what becomes an attractor" — a memory that other memories cluster around and that survives the noise of diverse access patterns.
+Agent memory is a filtering problem at small scale and a self-organization problem at large scale. A MEMORY.md with a 200-line cap forces write-time filtering — the agent decides what's important enough to persist. A vector database with pheromone decay provides read-time filtering — everything is stored, but only reinforced memories rise to the top. Both are valid strategies for different scales. The deeper question isn't "what to store" but "what becomes an attractor" — a memory that other memories cluster around and that survives the noise of diverse access patterns. The organizing insight: **retrieval patterns ARE knowledge** — the system doesn't just store and fetch, it watches the flow of knowledge between agents and uses that flow to identify what matters.
 
 ---
 
@@ -111,6 +111,16 @@ In pheromone terms: information that is never reinforced by access will naturall
 4. **Does this already exist elsewhere?** → If yes, link — don't duplicate
 5. **Is this an original, refinement, or consolidation?** → Refinements and consolidations need their source links preserved
 
+### Design Decision: Conclusions in MEMORY.md, Trajectories in PDSA Docs
+
+When you have 200 lines and must choose, this is the architecture — not a workaround:
+
+- **Conclusions go in MEMORY.md** — compact, fast to load, immediately actionable. Example: "Always stage specific files, never `git add .`"
+- **Trajectories go in PDSA docs** — full path from hypothesis to insight, preserving *why* and *when to revise*. Example: the 4-iteration research journey that discovered task DNA = thought units.
+- **Both go in task metadata** — the `findings` field captures conclusions; the `rework_iteration` and `rework_reason` fields preserve the trajectory.
+
+This separation is deliberate: conclusions answer "what do I do?", trajectories answer "why do I do it and when should I reconsider?" A system that stores only conclusions becomes rigid. A system that stores only trajectories becomes slow. The two storage mechanisms serve complementary retrieval needs.
+
 ### Emergent Knowledge: Co-Retrieval
 
 The most valuable memories may be ones no agent explicitly created. When two thoughts are repeatedly retrieved together in search results, the XPollination system logs this **co-retrieval** association. Over time, these reveal functional connections that exist in the domain but weren't documented by any individual:
@@ -119,7 +129,11 @@ The most valuable memories may be ones no agent explicitly created. When two tho
 
 This emergent knowledge — associations discovered through usage, not authorship — is worth remembering precisely because no one thought to write it down.
 
-**Important caveat:** Co-retrieval is the most theoretically promising concept in these documents, but it remains **unvalidated in practice**. We have not yet run experiments to confirm that co-retrieval patterns reveal genuine insights versus noise. A proposed validation experiment: populate a vector database with 15+ documents on different topics, have multiple agents query for diverse tasks over a week, then check whether co-retrieval edges reveal associations not present in explicit cross-references. Until this is tested, co-retrieval should be treated as a high-priority hypothesis, not an established pattern.
+**Important caveat — the dialectic:** Co-retrieval is theoretically promising but **unvalidated**, and there is a specific threat to its validity: vectors co-appear in search results partly because embedding spaces cluster by topic — a property of the **embedding model**, not of **thinking**. Two documents about "teams" and "organizations" will be co-retrieved simply because their embeddings are close in vector space, regardless of whether their connection is genuinely useful.
+
+What would **disprove** co-retrieval's value? If all co-retrieval associations either (a) already exist in explicit cross-references (no new knowledge discovered) or (b) reflect embedding proximity without genuine functional connection (noise, not signal). The distinction: embedding proximity says "these topics use similar words"; genuine emergence says "people working on X consistently also need Y, and nobody documented that dependency."
+
+The proposed validation experiment (see [WHERE doc](agent-memory-where.md#open-questions)) specifically tests for this by comparing co-retrieval edges against explicit cross-references. Until tested, co-retrieval should be treated as a high-priority hypothesis, not an established pattern.
 
 ---
 
