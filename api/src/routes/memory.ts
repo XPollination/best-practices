@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import crypto from "crypto";
 import { embed } from "../services/embedding.js";
-import { think, retrieve, applyImplicitFeedback, ThoughtError } from "../services/thoughtspace.js";
+import { think, retrieve, applyImplicitFeedback, highways, getExistingTags, ThoughtError } from "../services/thoughtspace.js";
 import { getAgentQueryCount, getSessionReturnedIds } from "../services/database.js";
 
 // --- Contribution Threshold (Section 3.5) ---
@@ -94,13 +94,17 @@ export async function memoryRoutes(app: FastifyInstance): Promise<void> {
 
     if (thresholdMet) {
       try {
+        // Tag extraction (Section 3.8): match prompt against existing tags
+        const existingTags = await getExistingTags();
+        const extractedTags = extractTagsFromResults(prompt.trim(), existingTags);
+
         const thinkResult = await think({
           content: prompt.trim(),
           contributor_id: agent_id,
           contributor_name: agent_name,
           thought_type: "original",
           source_ids: [],
-          tags: [],  // Tags will be extracted after retrieval
+          tags: extractedTags,
           context_metadata: context ?? undefined,
         });
         contributedThoughtId = thinkResult.thought_id;
@@ -218,8 +222,16 @@ export async function memoryRoutes(app: FastifyInstance): Promise<void> {
       }
     }
 
-    // Step 9: Highways (placeholder for Phase 4 — return empty for now)
-    const highwaysNearby: string[] = [];
+    // Step 9: Highways (Section 4.3)
+    let highwaysNearby: string[] = [];
+    try {
+      const hw = await highways({ min_access: 3, min_users: 2, limit: 5 });
+      highwaysNearby = hw.map((h) =>
+        `${h.content_preview} (${h.access_count} accesses, ${h.unique_users} agents)`
+      );
+    } catch (err) {
+      console.error("Highway query failed:", err);
+    }
 
     // Step 10: Format response
     const sources = retrieveResults.slice(0, 5).map((r) => ({

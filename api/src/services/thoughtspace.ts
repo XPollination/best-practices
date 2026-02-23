@@ -399,6 +399,104 @@ export async function applyImplicitFeedback(thoughtIds: string[]): Promise<void>
   }
 }
 
+// --- highways() — Section 4.3 ---
+
+export interface HighwayParams {
+  min_access?: number;
+  min_users?: number;
+  limit?: number;
+}
+
+export interface HighwayResult {
+  thought_id: string;
+  content_preview: string;
+  access_count: number;
+  unique_users: number;
+  traffic_score: number;
+  pheromone_weight: number;
+  tags: string[];
+}
+
+export async function highways(params: HighwayParams = {}): Promise<HighwayResult[]> {
+  const minAccess = params.min_access ?? 3;
+  const minUsers = params.min_users ?? 2;
+  const limit = params.limit ?? 20;
+
+  const candidates: HighwayResult[] = [];
+  let offset: string | number | undefined = undefined;
+
+  while (true) {
+    let scrollResult;
+    try {
+      scrollResult = await client.scroll(COLLECTION, {
+        filter: {
+          must: [
+            { key: "access_count", range: { gte: minAccess } },
+          ],
+        },
+        limit: 100,
+        with_payload: true,
+        with_vector: false,
+        offset,
+      });
+    } catch (err) {
+      throw new ThoughtError("QDRANT_ERROR", `Qdrant scroll failed: ${err}`);
+    }
+
+    for (const point of scrollResult.points) {
+      const p = point.payload as Record<string, unknown>;
+      const accessedBy = (p.accessed_by as string[]) ?? [];
+      if (accessedBy.length < minUsers) continue;
+
+      const accessCount = (p.access_count as number) ?? 0;
+      candidates.push({
+        thought_id: String(point.id),
+        content_preview: ((p.content as string) ?? "").substring(0, 80),
+        access_count: accessCount,
+        unique_users: accessedBy.length,
+        traffic_score: accessCount * accessedBy.length,
+        pheromone_weight: (p.pheromone_weight as number) ?? 1.0,
+        tags: (p.tags as string[]) ?? [],
+      });
+    }
+
+    if (!scrollResult.next_page_offset) break;
+    offset = scrollResult.next_page_offset;
+  }
+
+  candidates.sort((a, b) => b.traffic_score - a.traffic_score);
+  return candidates.slice(0, limit);
+}
+
+// --- Tag extraction helper — Section 3.8 ---
+
+export async function getExistingTags(): Promise<string[]> {
+  const tagSet = new Set<string>();
+  let offset: string | number | undefined = undefined;
+
+  while (true) {
+    const scrollResult = await client.scroll(COLLECTION, {
+      limit: 100,
+      with_payload: ["tags"],
+      with_vector: false,
+      offset,
+    });
+
+    for (const point of scrollResult.points) {
+      const p = point.payload as Record<string, unknown>;
+      const tags = (p.tags as string[]) ?? [];
+      for (const tag of tags) {
+        tagSet.add(tag);
+      }
+    }
+
+    if (!scrollResult.next_page_offset) break;
+    offset = scrollResult.next_page_offset;
+  }
+
+  return Array.from(tagSet);
+}
+
 // --- Error class ---
 
 export class ThoughtError extends Error {
