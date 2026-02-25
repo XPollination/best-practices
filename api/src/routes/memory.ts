@@ -41,9 +41,8 @@ interface MemoryRequest {
   session_id?: string;
 }
 
-export async function memoryRoutes(app: FastifyInstance): Promise<void> {
-  app.post<{ Body: MemoryRequest }>("/api/v1/memory", async (request, reply) => {
-    const { prompt, agent_id, agent_name, context, session_id } = request.body;
+async function handleMemoryRequest(params: MemoryRequest, reply: import("fastify").FastifyReply) {
+  const { prompt, agent_id, agent_name, context, session_id } = params;
 
     // Step 1: Validate request (Section 3.3)
     if (!prompt || typeof prompt !== "string" || prompt.trim().length === 0) {
@@ -264,5 +263,14 @@ export async function memoryRoutes(app: FastifyInstance): Promise<void> {
         retrieval_method: "vector",
       },
     });
+}
+
+export async function memoryRoutes(app: FastifyInstance): Promise<void> {
+  app.post<{ Body: MemoryRequest }>("/api/v1/memory", async (request, reply) => {
+    return handleMemoryRequest(request.body, reply);
+  });
+
+  app.get<{ Querystring: MemoryRequest }>("/api/v1/memory", async (request, reply) => {
+    return handleMemoryRequest(request.query as MemoryRequest, reply);
   });
 }
