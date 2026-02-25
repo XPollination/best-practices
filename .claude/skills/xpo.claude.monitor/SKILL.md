@@ -88,22 +88,30 @@ CLI=/home/developer/workspaces/github/PichlerThomas/xpollination-mcp-server/src/
 # 2. Get full DNA
 DATABASE_PATH=$DB node $CLI get <slug>
 
-# 3. Claim it
+# 3. Check: is YOUR work already in DNA but task still assigned to you?
+#    This means you completed the work in a previous session but missed the transition.
+#    → Skip to step 6 (transition forward). The transition IS the handoff.
+#    Examples: pdsa_review exists but task still at review+pdsa → execute review->review:pdsa
+#              findings exists but task still at active+pdsa → execute transition to approval
+
+# 4. Claim it (only if not already active/review with your work)
 DATABASE_PATH=$DB node $CLI transition <slug> active $ARGUMENTS
 
-# 4. Do the work described in DNA
+# 5. Do the work described in DNA
 
-# 5. Write results back to DNA
+# 6. Write results back to DNA
 DATABASE_PATH=$DB node $CLI update-dna <slug> '{"findings":"..."}' $ARGUMENTS
 
-# 6. Transition forward
+# 7. Transition forward — THIS IS MANDATORY, work is NOT done without it
 DATABASE_PATH=$DB node $CLI transition <slug> <next-state> $ARGUMENTS
 
-# 7. Contribute key learnings to memory
+# 8. Contribute key learnings to memory
 curl -s -X POST http://localhost:3200/api/v1/memory \
   -H "Content-Type: application/json" \
   -d "{\"prompt\": \"YOUR KEY LEARNING FROM THIS TASK\", \"agent_id\": \"agent-$ARGUMENTS\", \"agent_name\": \"$(echo $ARGUMENTS | tr a-z A-Z)\", \"session_id\": \"$SESSION_ID\", \"context\": \"task: <slug>\"}"
 ```
+
+**CRITICAL: Work = DNA + Transition.** Writing findings to DNA without executing the transition leaves the task stuck. If `--wait` returns a task where your output is already in DNA, the transition was missed — execute it immediately. Do not dismiss it as "already done."
 
 **Project databases** (all under `/home/developer/workspaces/github/PichlerThomas/`):
 - xpollination-mcp-server: `xpollination-mcp-server/data/xpollination.db`
