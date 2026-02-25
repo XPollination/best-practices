@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /home/developer/workspaces/github/PichlerThomas/best-practices/scripts/xpo.claude.compact-recover.sh"
+          }
+        ]
+      }
+    ]
+  }
+}

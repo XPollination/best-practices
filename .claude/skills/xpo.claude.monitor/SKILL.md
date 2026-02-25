@@ -200,3 +200,45 @@ Agents launched via `claude-session.sh` use `--allowedTools` to pre-approve ~50 
 **Fallback:** If agents still get prompted for unexpected commands, use `/xpo.claude.unblock <targets>` to start manual unblock loops.
 
 **Config location:** `ALLOWED_TOOLS` array in `HomeAssistant/systems/synology-ds218/features/infrastructure/scripts/claude-session.sh`
+
+## Auto-Compact Recovery (Automated)
+
+When Claude's context window fills up, auto-compact triggers. This is handled **automatically by hooks** — no agent action required.
+
+**How it works:**
+1. Claude Code detects context pressure → triggers auto-compact
+2. `SessionStart` hook (matcher: `compact`) fires after compaction
+3. Hook runs `xpo.claude.compact-recover.sh` which queries brain for role recovery
+4. Recovery context (role, task state, instructions) is injected into agent context
+5. Agent continues working with recovered state
+
+**What survives compaction (no hook needed):**
+- CLAUDE.md (all levels)
+- `--append-system-prompt` content (role identity)
+- This skill (loaded at session start)
+
+**What the hook recovers:**
+- Role-specific operational knowledge from brain
+- Current task state and recent decisions
+- Key learnings from previous work
+
+**Requirements:**
+- `AGENT_ROLE` env var set at launch (done by `claude-session.sh`)
+- Brain API at `localhost:3200`
+- Hook configured in `~/.claude/settings.json`
+
+**Script:** `best-practices/scripts/xpo.claude.compact-recover.sh`
+**Hook config:** `~/.claude/settings.json` → `SessionStart` → matcher: `compact`
+
+## Installation (new machine)
+
+```bash
+# Skills
+mkdir -p ~/.claude/skills/xpo.claude.monitor
+cp best-practices/.claude/skills/xpo.claude.monitor/SKILL.md ~/.claude/skills/xpo.claude.monitor/SKILL.md
+mkdir -p ~/.claude/skills/xpo.claude.unblock
+cp best-practices/.claude/skills/xpo.claude.unblock/SKILL.md ~/.claude/skills/xpo.claude.unblock/SKILL.md
+
+# Auto-compact recovery hook
+cp best-practices/scripts/xpo.claude.settings.json ~/.claude/settings.json
+```
