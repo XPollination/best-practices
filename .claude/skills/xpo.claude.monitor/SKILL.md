@@ -112,6 +112,49 @@ curl -s -X POST http://localhost:3200/api/v1/memory \
 
 ---
 
+## Role-Specific Transitions (CRITICAL)
+
+Each role has specific transitions to execute after completing work. Using the wrong transition leaves tasks stuck.
+
+### PDSA transitions
+| From State | Action | Transition Command |
+|-----------|--------|-------------------|
+| `ready+pdsa` | Claim task | `transition <slug> active pdsa` |
+| `active+pdsa` | Submit design for approval | `transition <slug> approval pdsa` |
+| `rework+pdsa` | Reclaim rework | `transition <slug> active pdsa` |
+| **`review+pdsa`** | **Forward reviewed task to liaison** | **`transition <slug> review pdsa`** (triggers `review->review:pdsa`, sets role to liaison) |
+
+### DEV transitions
+| From State | Action | Transition Command |
+|-----------|--------|-------------------|
+| `ready+dev` | Claim task | `transition <slug> active dev` |
+| `active+dev` | Submit for QA review | `transition <slug> review dev` |
+| `rework+dev` | Reclaim rework | `transition <slug> active dev` |
+
+### QA transitions
+| From State | Action | Transition Command |
+|-----------|--------|-------------------|
+| `approved+qa` | Claim for testing | `transition <slug> active qa` |
+| `review+qa` | Forward to PDSA after review | `transition <slug> review qa` (triggers `review->review:qa`, sets role to pdsa) |
+| `review+qa` | Send back for rework | `transition <slug> rework qa` |
+
+### LIAISON transitions
+| From State | Action | Transition Command |
+|-----------|--------|-------------------|
+| `review+liaison` | Complete task | `transition <slug> complete liaison` |
+| `approval` | Approve design | `transition <slug> approved liaison` |
+| `approval` | Reject design | `transition <slug> rework liaison` |
+
+### Review Chain
+```
+review+qa → review+pdsa (actor: qa)
+review+pdsa → review+liaison (actor: pdsa)
+review+liaison → complete (actor: liaison)
+```
+Each agent reviews, writes findings to DNA, then executes their transition to forward the task.
+
+---
+
 ## Process Rules
 
 ### Monitoring Is Role-Only
