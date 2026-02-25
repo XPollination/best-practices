@@ -55,7 +55,13 @@ Agent continues with recovered context
 
 ---
 
-## DO (Design)
+## DO (Design — Rework 2: Structured Handoff)
+
+### Insight from Rework
+
+Raw transcript extraction captures WHAT the agent was doing but not WHY or WHAT IS NEXT. For recovery, "what is next" is the most valuable information. A person writing a handoff note vs someone photocopying the last page of their notebook.
+
+**New approach:** Build a structured handoff from multiple sources — PM system (task state), transcript (recent reasoning), and environment (infrastructure).
 
 ### New Script: `xpo.claude.precompact-save.sh`
 
@@ -71,41 +77,52 @@ Agent continues with recovered context
 }
 ```
 
-**Logic:**
-1. Read JSON input from stdin, extract `transcript_path` and `trigger`
-2. Read `AGENT_ROLE` env var (set by `claude-session.sh` at launch)
-3. Extract meaningful context from transcript using smart extraction (see below)
-4. Contribute to brain: `"Pre-compact save ({trigger}) for {ROLE} agent: {context_summary}"`
-5. Exit 0 (hook must not block compaction)
-
-**Key constraints:**
+**Key constraints (unchanged):**
 - Must complete fast (< 5 seconds) — hook blocks compaction
 - Must not fail loudly — if brain is down, exit silently
-- Transcript is JSONL format — NOT simple text
 - Brain contribution limit: prompt must be < 10,000 chars
 
-### JSONL Transcript Format (from analysis of live session)
+### Structured Handoff: Three Data Sources
 
-A typical session transcript has ~700 lines (1.4MB). Line types:
+**Source 1: PM System (WHAT tasks, WHAT status)**
 
-| Type | Count | Avg size | Content |
-|------|-------|----------|---------|
-| `assistant` | 237 | 1,551B | Agent output: text blocks + tool_use blocks |
-| `user` | 178 | 3,428B | User input + system reminders (large!) |
-| `progress` | 220 | 1,862B | Tool execution progress (bash output, etc.) |
-| `file-history-snapshot` | 37 | 513B | File state snapshots |
-| `system` | 8 | 449B | System messages |
+Query each project DB for active tasks assigned to this agent's role:
 
-**Key insight:** 50 raw lines = ~75KB of mixed data, mostly noise (progress, system). The useful context is in `assistant` type lines with `text` content blocks (not `tool_use` blocks). These contain the agent's reasoning, decisions, and status updates.
-
-### Smart Extraction Strategy
-
-**Step 1: Find task context** — grep for task slugs in recent assistant text blocks
 ```bash
-# Extract last 100 assistant lines, find text blocks, take last 10
-tail -200 "$TRANSCRIPT_PATH" | \
-  grep '"type":"assistant"' | \
-  python3 -c "
+ROLE="${AGENT_ROLE:-unknown}"
+CLI="/home/developer/workspaces/github/PichlerThomas/xpollination-mcp-server/src/db/interface-cli.js"
+BASE="/home/developer/workspaces/github/PichlerThomas"
+
+TASK_STATE=""
+for project_db in \
+  "$BASE/xpollination-mcp-server/data/xpollination.db" \
+  "$BASE/HomePage/data/xpollination.db" \
+  "$BASE/best-practices/data/xpollination.db"; do
+
+  if [ -f "$project_db" ]; then
+    # Direct sqlite3 query — faster than node CLI, no nvm needed
+    result=$(sqlite3 "$project_db" \
+      "SELECT slug, status, json_extract(dna_json, '$.title') FROM mindspace_nodes WHERE role='$ROLE' AND status NOT IN ('complete','cancelled','pending') LIMIT 5" 2>/dev/null)
+    if [ -n "$result" ]; then
+      project_name=$(basename "$(dirname "$(dirname "$project_db")")")
+      TASK_STATE="${TASK_STATE}${project_name}: ${result}\n"
+    fi
+  fi
+done
+```
+
+Time: ~50ms per DB × 3 = ~150ms.
+
+**Source 2: Transcript (WHAT the agent was reasoning about)**
+
+Extract last 5 assistant text blocks — the agent's most recent thoughts:
+
+```bash
+RECENT_CONTEXT=""
+if [ -n "$TRANSCRIPT_PATH" ] && [ -f "$TRANSCRIPT_PATH" ]; then
+  RECENT_CONTEXT=$(tail -200 "$TRANSCRIPT_PATH" | \
+    grep '"type":"assistant"' | \
+    python3 -c "
 import sys, json
 texts = []
 for line in sys.stdin:
@@ -113,21 +130,79 @@ for line in sys.stdin:
         d = json.loads(line)
         for block in d.get('message',{}).get('content',[]):
             if isinstance(block, dict) and block.get('type') == 'text':
-                texts.append(block['text'])
+                texts.append(block['text'][:200])
     except: pass
-# Take last 10 text blocks, truncate each to 200 chars
-for t in texts[-10:]:
-    print(t[:200])
-"
+for t in texts[-5:]:
+    print(t)
+" 2>/dev/null)
+fi
 ```
 
-**Step 2: Build summary** — concatenate extracted texts (max 2000 chars total for brain)
+Time: ~100ms. Reduced from 10 to 5 blocks — PM system provides the structured context, transcript just adds recent reasoning.
 
-**Why 10 text blocks:** Assistant text blocks average ~100 chars of meaningful content (after tool calls are filtered). 10 blocks = ~1000 chars = comfortably under brain's 10,000 char limit while capturing the agent's recent reasoning chain.
+**Source 3: Environment (WHAT infrastructure is running)**
 
-**Why python3:** The JSONL parsing requires JSON decoding of nested structures (message.content[].type == "text"). Pure bash grep/sed would be fragile. python3 is available on the system and adds ~50ms overhead — well within the 5s budget.
+```bash
+SESSION_FILE="/tmp/${ROLE}-session-id.txt"
+SESSION_ID=$(cat "$SESSION_FILE" 2>/dev/null || echo "unknown")
+MONITOR_PID=$(pgrep -f "agent-monitor.cjs $ROLE" 2>/dev/null || echo "not running")
+```
 
-**Fallback:** If python3 fails or transcript is unreadable, contribute a minimal save: `"Pre-compact save for {ROLE}: context extraction failed, manual recovery needed."` This ensures brain always gets a timestamp marker for the compact event.
+Time: ~10ms.
+
+### Assembly: Structured Brain Contribution
+
+```bash
+HANDOFF="Pre-compact structured save (${TRIGGER}) for ${ROLE} agent:
+## Active Tasks
+${TASK_STATE:-No active tasks found}
+## Recent Reasoning
+${RECENT_CONTEXT:-No transcript available}
+## Infrastructure
+Session: ${SESSION_ID}
+Monitor PID: ${MONITOR_PID}
+Timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+# Truncate to 8000 chars (safety margin under 10K brain limit)
+HANDOFF="${HANDOFF:0:8000}"
+
+# Contribute to brain
+curl -s --max-time 3 -X POST http://localhost:3200/api/v1/memory \
+  -H "Content-Type: application/json" \
+  -d "$(python3 -c "
+import json, sys
+print(json.dumps({
+    'prompt': sys.argv[1],
+    'agent_id': 'agent-' + sys.argv[2],
+    'agent_name': sys.argv[2].upper(),
+    'session_id': sys.argv[3],
+    'context': 'pre-compact-save'
+}))
+" "$HANDOFF" "$ROLE" "$SESSION_ID")" >/dev/null 2>&1
+```
+
+Time: ~200ms for curl (3s timeout).
+
+**Total estimated time:** 150ms (DB) + 100ms (transcript) + 10ms (env) + 200ms (curl) = **~460ms** — well within 5s budget.
+
+### Why this is better than raw extraction
+
+| Dimension | Raw extraction (v1) | Structured handoff (v2) |
+|-----------|-------------------|----------------------|
+| **Task state** | Inferred from conversation | Queried from PM system (authoritative) |
+| **Recent reasoning** | 10 text blocks (1-2KB, noisy) | 5 text blocks (supporting context) |
+| **What is next** | Missing | Implied by task status (active = in progress, review = waiting) |
+| **Infrastructure** | Missing | Session ID, monitor PID, timestamp |
+| **Recovery quality** | Agent knows WHAT it was doing | Agent knows WHAT tasks exist, their status, AND recent reasoning |
+
+### Fallback cascade
+
+1. **All sources available:** Full structured handoff (best quality)
+2. **DB unavailable:** Transcript + env only (reduced but useful)
+3. **Transcript unavailable:** PM system + env only (task state without reasoning)
+4. **Everything fails:** Minimal marker: `"Pre-compact save for {ROLE}: extraction failed at {timestamp}"`
+
+The script ALWAYS exits 0 and ALWAYS contributes something to brain — even if it's just a timestamp marker.
 
 ### Hook Configuration Change
 
@@ -178,32 +253,31 @@ No changes needed — the existing recovery script queries brain for recent cont
 
 ---
 
-### Acceptance Criteria
+### Acceptance Criteria (Rework 2)
 
 **AC1:** PreCompact hook configured in `~/.claude/settings.json`
 **AC2:** `xpo.claude.precompact-save.sh` exists and is executable
 **AC3:** Script reads AGENT_ROLE env var and transcript_path from stdin JSON
-**AC4:** Script contributes to brain with pre-compact context summary
-**AC5:** Script completes in < 5 seconds
-**AC6:** Script exits cleanly (exit 0) when brain is unavailable
-**AC7:** After auto-compact, recovery query returns the pre-compact save context
-**AC8:** Manual test: `echo '{"transcript_path":"/tmp/test.jsonl","trigger":"manual"}' | AGENT_ROLE=pdsa bash xpo.claude.precompact-save.sh` succeeds
+**AC4:** Script queries PM system DBs for active tasks by role
+**AC5:** Script extracts last 5 assistant text blocks from transcript
+**AC6:** Script builds structured handoff with sections: Active Tasks, Recent Reasoning, Infrastructure
+**AC7:** Brain contribution includes task slugs and statuses from PM system
+**AC8:** Script completes in < 5 seconds
+**AC9:** Script exits 0 when brain is unavailable (silent fallback)
+**AC10:** Script exits 0 when DB or transcript is unavailable (fallback cascade)
+**AC11:** Manual test: `echo '{"transcript_path":"/tmp/test.jsonl","trigger":"manual"}' | AGENT_ROLE=pdsa bash xpo.claude.precompact-save.sh` succeeds
+**AC12:** After auto-compact, recovery query returns structured handoff with task state
 
 ---
 
-### Rework: Transcript Analysis (requested by Thomas)
+### File Changes Summary (Rework 2)
 
-**Q1: What does a JSONL transcript line contain?**
-Each line is a complete JSON object. Lines have a `type` field: `assistant` (agent output), `user` (input + system), `progress` (tool execution), `file-history-snapshot`, `system`. Assistant lines contain a `message.content` array with blocks of type `text` (reasoning) or `tool_use` (tool calls). Only `text` blocks contain meaningful context.
+| File | Change | Type |
+|------|--------|------|
+| `best-practices/scripts/xpo.claude.precompact-save.sh` | New script — structured pre-compact brain save | Create |
+| `~/.claude/settings.json` | Add PreCompact hook entry | Modify |
 
-**Q2: How many lines does a typical mid-task context require?**
-A single task cycle (claim → analyze → write findings → transition) generates ~50-80 assistant lines, of which ~15-20 are text blocks (the rest are tool calls). The last 10 text blocks capture the most recent reasoning chain — typically 1-2 complete task actions.
-
-**Q3: Why 10 text blocks, not 50 raw lines?**
-50 raw lines = ~75KB of mixed types (progress, snapshots, tool calls) — mostly noise. 10 filtered assistant text blocks = ~1-2KB of pure reasoning — the agent's actual decisions and status. Quality over quantity. Brain's vector search matches on semantic content, so even a 200-char summary of "working on task X, found Y, next step Z" is sufficient for recovery.
-
-**Q4: 5-second timeout constraint?**
-`tail -200` on a 1.4MB file: <10ms. `grep + python3 JSON parse`: ~50-100ms. `curl to brain API`: ~200ms. Total: <500ms — well within 5s budget even with 3x safety margin.
+2 files. 1 new script, 1 config update. Same as v1 — only the script internals changed.
 
 ---
 
