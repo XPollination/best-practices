@@ -1,0 +1,99 @@
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { createServer, IncomingMessage, ServerResponse } from "node:http";
+import { z } from "zod";
+
+const BRAIN_API = "http://localhost:3200/api/v1/memory";
+const AGENT_ID = "thomas";
+const AGENT_NAME = "Thomas Pichler";
+const MCP_PORT = 3201;
+
+async function callBrain(prompt: string, context?: string, session_id?: string): Promise<unknown> {
+  const body: Record<string, string> = { prompt, agent_id: AGENT_ID, agent_name: AGENT_NAME };
+  if (context) body.context = context;
+  if (session_id) body.session_id = session_id;
+
+  const res = await fetch(BRAIN_API, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Brain API error ${res.status}: ${err}`);
+  }
+  return res.json();
+}
+
+function createMcpServer(): McpServer {
+  const mcp = new McpServer(
+    { name: "xpollination-brain", version: "0.1.0" },
+    { capabilities: { tools: {} } }
+  );
+
+  mcp.tool(
+    "query_brain",
+    "Query the shared agent brain for knowledge on a topic. Returns matching thoughts with sources and high-traffic knowledge paths.",
+    {
+      prompt: z.string().describe("Natural language question or topic to search"),
+      context: z.string().optional().describe("What you are currently working on — changes retrieval direction"),
+      session_id: z.string().optional().describe("Reuse from previous call for conversation continuity"),
+    },
+    async ({ prompt, context, session_id }) => {
+      const data = await callBrain(prompt, context, session_id) as Record<string, unknown>;
+      return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+    }
+  );
+
+  mcp.tool(
+    "contribute_to_brain",
+    "Contribute a strategic thought or learning to the shared agent brain. Must be >50 chars and a declarative statement (not a question).",
+    {
+      prompt: z.string().min(51).describe("Declarative statement to store as knowledge (>50 chars, not a question)"),
+      context: z.string().optional().describe("What you are currently working on — stored as provenance"),
+      session_id: z.string().optional().describe("Reuse from previous call for conversation continuity"),
+    },
+    async ({ prompt, context, session_id }) => {
+      const data = await callBrain(prompt, context, session_id) as Record<string, unknown>;
+      const trace = data.trace as Record<string, unknown> | undefined;
+      const contributed = trace?.thoughts_contributed ?? 0;
+      const prefix = contributed > 0
+        ? "Thought stored successfully."
+        : "Not stored (too short or interrogative). Still retrieved related thoughts:";
+      return { content: [{ type: "text" as const, text: `${prefix}\n\n${JSON.stringify(data, null, 2)}` }] };
+    }
+  );
+
+  return mcp;
+}
+
+export async function startMcpServer(): Promise<void> {
+  const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse) => {
+    // CORS for Claude.ai
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, mcp-session-id");
+    res.setHeader("Access-Control-Expose-Headers", "mcp-session-id");
+
+    if (req.method === "OPTIONS") {
+      res.writeHead(204);
+      res.end();
+      return;
+    }
+
+    // Stateless mode: new server+transport per request
+    const mcp = createMcpServer();
+    const transport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: undefined, // stateless
+    });
+
+    await mcp.connect(transport);
+    await transport.handleRequest(req, res);
+    await mcp.close();
+  });
+
+  httpServer.listen(MCP_PORT, "0.0.0.0", () => {
+    console.log(`MCP server (brain wrapper) running on http://0.0.0.0:${MCP_PORT}`);
+  });
+}
