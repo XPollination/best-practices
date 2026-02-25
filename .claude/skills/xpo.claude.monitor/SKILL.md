@@ -59,52 +59,30 @@ curl -s -X POST http://localhost:3200/api/v1/memory \
 
 **If memory is down:** Fall back to `~/.claude/CLAUDE.md` and project CLAUDE.md. Scan PM system directly.
 
-## Step 3: Unblock Teammates
+## Step 3: Unblock Teammates (if needed)
 
-Agents get blocked by permission prompts. Two roles have unblock duty:
-
-| Your Role | You Unblock | Reason |
-|-----------|-------------|--------|
-| **liaison** | pdsa, dev, qa | Liaison is the coordinator, unblocks the team |
-| **pdsa** | liaison | PDSA unblocks liaison (mutual coverage) |
-| dev | *nobody* | Dev focuses on implementation |
-| qa | *nobody* | QA focuses on testing |
-
-**If you have unblock duty**, detect the tmux session and start background unblock loops:
+Agents launched via `claude-session.sh` have `--allowedTools` pre-approved — most prompts never appear. **Check first** if teammates are actually getting blocked before starting unblock loops.
 
 ```bash
-# Detect tmux session name
+# Quick check — are any panes showing permission prompts?
 SESSION=$(tmux list-sessions -F '#{session_name}' 2>/dev/null | grep -E 'claude-agents|claude-dual' | head -1)
-```
-
-Then for EACH pane you must unblock, start a **separate** background bash loop using `run_in_background: true`:
-
-```bash
-while true; do
-  output=$(tmux capture-pane -t ${SESSION}:0.<PANE> -p 2>/dev/null)
-  if echo "$output" | grep -qE '❯ 1\. Yes'; then
-    if echo "$output" | grep -qE '2\. Yes'; then
-      tmux send-keys -t ${SESSION}:0.<PANE> 2
-      echo "[$(date +%H:%M:%S)] <NAME>: Confirmed option 2 (allow all)"
-    else
-      tmux send-keys -t ${SESSION}:0.<PANE> 1
-      echo "[$(date +%H:%M:%S)] <NAME>: Confirmed option 1 (yes)"
-    fi
-    sleep 5
-    continue
-  fi
-  sleep 6
+for pane in 0 1 2 3; do
+  tmux capture-pane -t ${SESSION}:0.${pane} -p 2>/dev/null | grep -q '❯ 1\. Yes' && echo "Pane $pane: BLOCKED"
 done
 ```
 
-**Pane numbers:** liaison=0, pdsa=1, dev=2, qa=3
+**If prompts ARE appearing**, two roles have unblock duty:
 
-**CRITICAL unblock rules (learned from 4 failed iterations):**
-1. **ONLY handle `❯ 1. Yes` permission prompts.** Nothing else. Ever.
-2. **NEVER send Enter for "accept edits on".** It's a mode indicator, not a prompt.
-3. **Prefer option 2** ("Yes, allow all during session") to reduce future prompts.
+| Your Role | You Unblock | Reason |
+|-----------|-------------|--------|
+| **liaison** | pdsa, dev, qa | Liaison is the coordinator |
+| **pdsa** | liaison | Mutual coverage |
+| dev | *nobody* | Focuses on implementation |
+| qa | *nobody* | Focuses on testing |
 
-**If you do NOT have unblock duty**, skip this step entirely.
+Run `/xpo.claude.unblock <targets>` to start unblock loops for your targets. Or start inline loops with `run_in_background: true` per the unblock skill instructions.
+
+**If no prompts are appearing**, skip this step — `--allowedTools` is working.
 
 ## Step 4: Start Background Monitor
 
@@ -215,10 +193,10 @@ mkdir -p ~/.claude/skills/xpo.claude.monitor
 cp best-practices/.claude/skills/xpo.claude.monitor/SKILL.md ~/.claude/skills/xpo.claude.monitor/SKILL.md
 ```
 
-## Alternative: Skip Permission Prompts Entirely
+## Permission Model
 
-Claude Code supports `--allowedTools` to pre-approve tool patterns at launch. If agents are launched with:
-```bash
-claude --allowedTools "Bash(node:*) Bash(git:*) Bash(source:*) Bash(curl:*) Bash(pkill:*) Bash(npx:*) Read Edit Write"
-```
-Then most permission prompts never appear. This could eventually replace the unblock loop entirely. The trade-off: less safety, but no blocking. Configure in the session launcher script (`claude-session.sh`).
+Agents launched via `claude-session.sh` use `--allowedTools` to pre-approve ~50 tool patterns (node, git, curl, tmux, sqlite3, Read, Edit, Write, etc.). This eliminates most permission prompts at launch.
+
+**Fallback:** If agents still get prompted for unexpected commands, use `/xpo.claude.unblock <targets>` to start manual unblock loops.
+
+**Config location:** `ALLOWED_TOOLS` array in `HomeAssistant/systems/synology-ds218/features/infrastructure/scripts/claude-session.sh`
