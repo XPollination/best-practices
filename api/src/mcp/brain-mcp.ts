@@ -83,14 +83,26 @@ export async function startMcpServer(): Promise<void> {
     }
 
     // Stateless mode: new server+transport per request
-    const mcp = createMcpServer();
-    const transport = new StreamableHTTPServerTransport({
-      sessionIdGenerator: undefined, // stateless
-    });
+    try {
+      const mcp = createMcpServer();
+      const transport = new StreamableHTTPServerTransport({
+        sessionIdGenerator: undefined, // stateless
+      });
 
-    await mcp.connect(transport);
-    await transport.handleRequest(req, res);
-    await mcp.close();
+      await mcp.connect(transport);
+      await transport.handleRequest(req, res);
+      await mcp.close();
+    } catch (err) {
+      console.error("MCP request handler error:", err);
+      if (!res.headersSent) {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Internal MCP server error" }));
+      }
+    }
+  });
+
+  httpServer.on("error", (err) => {
+    console.error("MCP HTTP server error:", err);
   });
 
   httpServer.listen(MCP_PORT, "0.0.0.0", () => {
