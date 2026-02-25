@@ -1,13 +1,13 @@
 ---
 name: xpo.claude.monitor
-description: Wake up agent, recover from memory, unblock teammates, start monitoring
+description: Wake up agent, recover from memory, start monitoring
 user-invocable: true
 allowed-tools: Bash, Read, TaskStop, TaskOutput
 ---
 
 # XPollination Agent Wake-Up
 
-Wake up, recover context from memory, unblock your teammates, and start working.
+Wake up, recover context from memory, and start working.
 
 ```
 /xpo.claude.monitor <role>
@@ -59,39 +59,14 @@ curl -s -X POST http://localhost:3200/api/v1/memory \
 
 **If memory is down:** Fall back to `~/.claude/CLAUDE.md` and project CLAUDE.md. Scan PM system directly.
 
-## Step 3: Unblock Teammates (if needed)
-
-Agents launched via `claude-session.sh` have `--allowedTools` pre-approved — most prompts never appear. **Check first** if teammates are actually getting blocked before starting unblock loops.
-
-```bash
-# Quick check — are any panes showing permission prompts?
-SESSION=$(tmux list-sessions -F '#{session_name}' 2>/dev/null | grep -E 'claude-agents|claude-dual' | head -1)
-for pane in 0 1 2 3; do
-  tmux capture-pane -t ${SESSION}:0.${pane} -p 2>/dev/null | grep -q '❯ 1\. Yes' && echo "Pane $pane: BLOCKED"
-done
-```
-
-**If prompts ARE appearing**, two roles have unblock duty:
-
-| Your Role | You Unblock | Reason |
-|-----------|-------------|--------|
-| **liaison** | pdsa, dev, qa | Liaison is the coordinator |
-| **pdsa** | liaison | Mutual coverage |
-| dev | *nobody* | Focuses on implementation |
-| qa | *nobody* | Focuses on testing |
-
-Run `/xpo.claude.unblock <targets>` to start unblock loops for your targets. Or start inline loops with `run_in_background: true` per the unblock skill instructions.
-
-**If no prompts are appearing**, skip this step — `--allowedTools` is working.
-
-## Step 4: Start Background Monitor
+## Step 3: Start Background Monitor
 
 ```bash
 pkill -f "agent-monitor.cjs $ARGUMENTS" 2>/dev/null || true
 source ~/.nvm/nvm.sh && nohup node /home/developer/workspaces/github/PichlerThomas/xpollination-mcp-server/viz/agent-monitor.cjs $ARGUMENTS > /tmp/agent-monitor-$ARGUMENTS.log 2>&1 &
 ```
 
-## Step 5: Wait for Work
+## Step 4: Wait for Work
 
 ```bash
 source ~/.nvm/nvm.sh && node /home/developer/workspaces/github/PichlerThomas/xpollination-mcp-server/viz/agent-monitor.cjs $ARGUMENTS --wait
@@ -147,7 +122,6 @@ You see ALL non-terminal tasks assigned to your role. The workflow engine moves 
 
 - **PM system (task DNA)** = only task channel. DNA is self-contained.
 - **Memory** = shared knowledge. Query before decisions, contribute after learnings.
-- **tmux send-keys** = only for unblocking (permission prompts). NEVER for task instructions.
 - Agents NEVER communicate directly.
 
 ### Git Protocol
@@ -165,10 +139,10 @@ NEVER `git add .` or `git add -A`. Atomic commands — no `&&` chaining.
 ## Roles
 
 ### LIAISON
-Bridge between Thomas (human) and agents. Creates tasks with complete DNA. Executes human-decision transitions (approve, reject, reopen). Presents work for review. **Never** does agent work. **Unblocks:** pdsa, dev, qa.
+Bridge between Thomas (human) and agents. Creates tasks with complete DNA. Executes human-decision transitions (approve, reject, reopen). Presents work for review. **Never** does agent work.
 
 ### PDSA
-Plans, researches, designs. Produces PDSA documents. Verifies dev implementation matches design. **Never** implements code. **Unblocks:** liaison.
+Plans, researches, designs. Produces PDSA documents. Verifies dev implementation matches design. **Never** implements code.
 
 ### DEV
 Implements what PDSA designed. Reads DNA, builds, submits for review. **Never** changes tests. **Never** plans. If tests fail, fix implementation or escalate via DNA.
@@ -186,18 +160,9 @@ Writes tests from approved designs. Reviews dev implementations by running tests
 - Memory health: `GET http://localhost:3200/api/v1/health`
 - Brain skill: `~/.claude/skills/brain/SKILL.md`
 
-## Installation (new machine)
-
-```bash
-mkdir -p ~/.claude/skills/xpo.claude.monitor
-cp best-practices/.claude/skills/xpo.claude.monitor/SKILL.md ~/.claude/skills/xpo.claude.monitor/SKILL.md
-```
-
 ## Permission Model
 
-Agents launched via `claude-session.sh` use `--allowedTools` to pre-approve ~50 tool patterns (node, git, curl, tmux, sqlite3, Read, Edit, Write, etc.). This eliminates most permission prompts at launch.
-
-**Fallback:** If agents still get prompted for unexpected commands, use `/xpo.claude.unblock <targets>` to start manual unblock loops.
+Agents launched via `claude-session.sh` use `--allowedTools` to pre-approve ~50 tool patterns (node, git, curl, tmux, sqlite3, Read, Edit, Write, etc.). This eliminates permission prompts at launch.
 
 **Config location:** `ALLOWED_TOOLS` array in `HomeAssistant/systems/synology-ds218/features/infrastructure/scripts/claude-session.sh`
 
@@ -233,11 +198,9 @@ When Claude's context window fills up, auto-compact triggers. This is handled **
 ## Installation (new machine)
 
 ```bash
-# Skills
+# Skill
 mkdir -p ~/.claude/skills/xpo.claude.monitor
 cp best-practices/.claude/skills/xpo.claude.monitor/SKILL.md ~/.claude/skills/xpo.claude.monitor/SKILL.md
-mkdir -p ~/.claude/skills/xpo.claude.unblock
-cp best-practices/.claude/skills/xpo.claude.unblock/SKILL.md ~/.claude/skills/xpo.claude.unblock/SKILL.md
 
 # Auto-compact recovery hook
 cp best-practices/scripts/xpo.claude.settings.json ~/.claude/settings.json
