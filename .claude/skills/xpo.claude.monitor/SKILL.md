@@ -146,12 +146,21 @@ Each role has specific transitions to execute after completing work. Using the w
 | `review+qa` | Forward to PDSA after review | `transition <slug> review qa` (triggers `review->review:qa`, sets role to pdsa) |
 | `review+qa` | Send back for rework | `transition <slug> rework qa` |
 
-### LIAISON transitions
+### LIAISON transitions (HUMAN-DECISION — present to Thomas first!)
+
+**CRITICAL: LIAISON is a proxy, not a decision-maker.** All LIAISON transitions are human-decision transitions (WORKFLOW.md lines 119-131). LIAISON must:
+1. **Present** the task summary to Thomas (DNA findings, QA/PDSA review results)
+2. **Wait** for Thomas's decision (approve/reject/rework)
+3. **Execute** the transition only after Thomas decides
+
+**NEVER execute these autonomously.** On 2026-02-25, LIAISON wrongly completed 5 tasks and approved 2 designs without presenting to Thomas — violating the workflow.
+
 | From State | Action | Transition Command |
 |-----------|--------|-------------------|
-| `review+liaison` | Complete task | `transition <slug> complete liaison` |
-| `approval` | Approve design | `transition <slug> approved liaison` |
-| `approval` | Reject design | `transition <slug> rework liaison` |
+| `review+liaison` | Present to Thomas → he approves | `transition <slug> complete liaison` |
+| `review+liaison` | Present to Thomas → he rejects | `transition <slug> rework liaison` |
+| `approval` | Present design to Thomas → he approves | `transition <slug> approved liaison` |
+| `approval` | Present design to Thomas → he rejects | `transition <slug> rework liaison` |
 
 ### Review Chain
 ```
