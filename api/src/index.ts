@@ -7,6 +7,7 @@ import { queryRoutes } from "./routes/query.js";
 import { ingestRoutes } from "./routes/ingest.js";
 import { healthRoutes } from "./routes/health.js";
 import { memoryRoutes } from "./routes/memory.js";
+import { startMcpServer } from "./mcp/brain-mcp.js";
 
 const app = Fastify({ logger: true });
 
@@ -30,3 +31,4 @@ try {
 
 await app.listen({ port: 3200, host: "0.0.0.0" });
 console.log("API server running on http://0.0.0.0:3200");
+await startMcpServer();
