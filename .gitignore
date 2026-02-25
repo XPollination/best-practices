@@ -1,1 +1,5 @@
 data/xpollination.db
+
+# SQLite runtime files
+*.db-shm
+*.db-wal
