@@ -74,26 +74,60 @@ Agent continues with recovered context
 **Logic:**
 1. Read JSON input from stdin, extract `transcript_path` and `trigger`
 2. Read `AGENT_ROLE` env var (set by `claude-session.sh` at launch)
-3. Extract recent context from transcript: last 50 lines of the JSONL file (agent's recent work)
-4. Summarize: extract task slugs, key decisions, current status from recent lines
-5. Contribute to brain: `"Pre-compact save ({trigger}) for {ROLE} agent: Working on {task}. Key context: {summary}"`
-6. Exit 0 (hook must not block compaction)
+3. Extract meaningful context from transcript using smart extraction (see below)
+4. Contribute to brain: `"Pre-compact save ({trigger}) for {ROLE} agent: {context_summary}"`
+5. Exit 0 (hook must not block compaction)
 
 **Key constraints:**
 - Must complete fast (< 5 seconds) — hook blocks compaction
 - Must not fail loudly — if brain is down, exit silently
-- Must extract useful context without parsing full conversation
-- Transcript is JSONL format — each line is a JSON object with role, content, etc.
+- Transcript is JSONL format — NOT simple text
+- Brain contribution limit: prompt must be < 10,000 chars
 
-**Implementation approach for context extraction:**
+### JSONL Transcript Format (from analysis of live session)
+
+A typical session transcript has ~700 lines (1.4MB). Line types:
+
+| Type | Count | Avg size | Content |
+|------|-------|----------|---------|
+| `assistant` | 237 | 1,551B | Agent output: text blocks + tool_use blocks |
+| `user` | 178 | 3,428B | User input + system reminders (large!) |
+| `progress` | 220 | 1,862B | Tool execution progress (bash output, etc.) |
+| `file-history-snapshot` | 37 | 513B | File state snapshots |
+| `system` | 8 | 449B | System messages |
+
+**Key insight:** 50 raw lines = ~75KB of mixed data, mostly noise (progress, system). The useful context is in `assistant` type lines with `text` content blocks (not `tool_use` blocks). These contain the agent's reasoning, decisions, and status updates.
+
+### Smart Extraction Strategy
+
+**Step 1: Find task context** — grep for task slugs in recent assistant text blocks
 ```bash
-# Extract recent assistant messages (agent's own output) from JSONL
-# These contain task context, decisions, findings
-tail -50 "$TRANSCRIPT_PATH" | grep '"role":"assistant"' | tail -5 | \
-  grep -oP '"text":"[^"]{0,200}' | sed 's/"text":"//' | tr '\n' ' '
+# Extract last 100 assistant lines, find text blocks, take last 10
+tail -200 "$TRANSCRIPT_PATH" | \
+  grep '"type":"assistant"' | \
+  python3 -c "
+import sys, json
+texts = []
+for line in sys.stdin:
+    try:
+        d = json.loads(line)
+        for block in d.get('message',{}).get('content',[]):
+            if isinstance(block, dict) and block.get('type') == 'text':
+                texts.append(block['text'])
+    except: pass
+# Take last 10 text blocks, truncate each to 200 chars
+for t in texts[-10:]:
+    print(t[:200])
+"
 ```
 
-This gives a ~1000 char summary of the agent's recent output — enough for brain to store and return on recovery.
+**Step 2: Build summary** — concatenate extracted texts (max 2000 chars total for brain)
+
+**Why 10 text blocks:** Assistant text blocks average ~100 chars of meaningful content (after tool calls are filtered). 10 blocks = ~1000 chars = comfortably under brain's 10,000 char limit while capturing the agent's recent reasoning chain.
+
+**Why python3:** The JSONL parsing requires JSON decoding of nested structures (message.content[].type == "text"). Pure bash grep/sed would be fragile. python3 is available on the system and adds ~50ms overhead — well within the 5s budget.
+
+**Fallback:** If python3 fails or transcript is unreadable, contribute a minimal save: `"Pre-compact save for {ROLE}: context extraction failed, manual recovery needed."` This ensures brain always gets a timestamp marker for the compact event.
 
 ### Hook Configuration Change
 
@@ -157,9 +191,19 @@ No changes needed — the existing recovery script queries brain for recent cont
 
 ---
 
-### Open Decision
+### Rework: Transcript Analysis (requested by Thomas)
 
-**Transcript parsing depth:** The JSONL transcript can be large. Current design takes last 50 lines and extracts assistant messages. Alternative: use a more sophisticated parser that finds the most recent task DNA references. For v1, simple tail + grep is sufficient — brain retrieval will match on keywords regardless.
+**Q1: What does a JSONL transcript line contain?**
+Each line is a complete JSON object. Lines have a `type` field: `assistant` (agent output), `user` (input + system), `progress` (tool execution), `file-history-snapshot`, `system`. Assistant lines contain a `message.content` array with blocks of type `text` (reasoning) or `tool_use` (tool calls). Only `text` blocks contain meaningful context.
+
+**Q2: How many lines does a typical mid-task context require?**
+A single task cycle (claim → analyze → write findings → transition) generates ~50-80 assistant lines, of which ~15-20 are text blocks (the rest are tool calls). The last 10 text blocks capture the most recent reasoning chain — typically 1-2 complete task actions.
+
+**Q3: Why 10 text blocks, not 50 raw lines?**
+50 raw lines = ~75KB of mixed types (progress, snapshots, tool calls) — mostly noise. 10 filtered assistant text blocks = ~1-2KB of pure reasoning — the agent's actual decisions and status. Quality over quantity. Brain's vector search matches on semantic content, so even a 200-char summary of "working on task X, found Y, next step Z" is sufficient for recovery.
+
+**Q4: 5-second timeout constraint?**
+`tail -200` on a 1.4MB file: <10ms. `grep + python3 JSON parse`: ~50-100ms. `curl to brain API`: ~200ms. Total: <500ms — well within 5s budget even with 3x safety margin.
 
 ---
 
