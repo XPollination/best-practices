@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import crypto from "crypto";
 import { embed } from "../services/embedding.js";
-import { think, retrieve, applyImplicitFeedback, highways, getExistingTags, ThoughtError } from "../services/thoughtspace.js";
+import { think, retrieve, applyImplicitFeedback, highways, getExistingTags, getThoughtById, getLineage, ThoughtError } from "../services/thoughtspace.js";
 import { getAgentQueryCount, getSessionReturnedIds } from "../services/database.js";
 
 // --- Contribution Threshold (Section 3.5) ---
@@ -39,10 +39,12 @@ interface MemoryRequest {
   agent_name: string;
   context?: string;
   session_id?: string;
+  refines?: string;
+  consolidates?: string[];
 }
 
 async function handleMemoryRequest(params: MemoryRequest, reply: import("fastify").FastifyReply) {
-  const { prompt, agent_id, agent_name, context, session_id } = params;
+  const { prompt, agent_id, agent_name, context, session_id, refines, consolidates } = params;
 
     // Step 1: Validate request (Section 3.3)
     if (!prompt || typeof prompt !== "string" || prompt.trim().length === 0) {
@@ -81,6 +83,38 @@ async function handleMemoryRequest(params: MemoryRequest, reply: import("fastify
       });
     }
 
+    // Validate refines/consolidates mutual exclusion
+    if (refines && consolidates && consolidates.length > 0) {
+      return reply.status(400).send({
+        error: { code: "MUTUAL_EXCLUSION", message: "Cannot provide both refines and consolidates in the same request" },
+      });
+    }
+    if (consolidates && consolidates.length < 2) {
+      return reply.status(400).send({
+        error: { code: "MIN_CONSOLIDATION", message: "consolidates must contain at least 2 thought IDs" },
+      });
+    }
+
+    // Validate referenced thoughts exist
+    if (refines) {
+      const sourceThought = await getThoughtById(refines);
+      if (!sourceThought) {
+        return reply.status(404).send({
+          error: { code: "THOUGHT_NOT_FOUND", message: `Thought ${refines} not found` },
+        });
+      }
+    }
+    if (consolidates) {
+      for (const id of consolidates) {
+        const sourceThought = await getThoughtById(id);
+        if (!sourceThought) {
+          return reply.status(404).send({
+            error: { code: "THOUGHT_NOT_FOUND", message: `Thought ${id} not found` },
+          });
+        }
+      }
+    }
+
     // Step 2: Generate session_id if not provided
     const sessionId = session_id || crypto.randomUUID();
 
@@ -89,7 +123,9 @@ async function handleMemoryRequest(params: MemoryRequest, reply: import("fastify
     let contributedThoughtId: string | undefined;
 
     // Step 3: Check contribution threshold (Section 3.5)
-    const thresholdMet = meetsContributionThreshold(prompt.trim());
+    // Bypass threshold when refines or consolidates is provided (explicit iteration)
+    const isExplicitIteration = !!(refines || consolidates);
+    const thresholdMet = isExplicitIteration || meetsContributionThreshold(prompt.trim());
 
     if (thresholdMet) {
       try {
@@ -97,12 +133,24 @@ async function handleMemoryRequest(params: MemoryRequest, reply: import("fastify
         const existingTags = await getExistingTags();
         const extractedTags = extractTagsFromResults(prompt.trim(), existingTags);
 
+        // Determine thought_type and source_ids
+        let thought_type: "original" | "refinement" | "consolidation" = "original";
+        let source_ids: string[] = [];
+
+        if (refines) {
+          thought_type = "refinement";
+          source_ids = [refines];
+        } else if (consolidates) {
+          thought_type = "consolidation";
+          source_ids = consolidates;
+        }
+
         const thinkResult = await think({
           content: prompt.trim(),
           contributor_id: agent_id,
           contributor_name: agent_name,
-          thought_type: "original",
-          source_ids: [],
+          thought_type,
+          source_ids,
           tags: extractedTags,
           context_metadata: context ?? undefined,
         });
@@ -211,6 +259,15 @@ async function handleMemoryRequest(params: MemoryRequest, reply: import("fastify
       operations.push("onboard");
     }
 
+    // Step 7b: Refinement suggestion (Q5) — when contributing original, check for similar existing thought
+    if (thresholdMet && !isExplicitIteration && retrieveResults.length > 0) {
+      const topMatch = retrieveResults[0];
+      if (topMatch.score > 0.85) {
+        const suggestion = `Similar thought exists (id: ${topMatch.thought_id}, preview: '${topMatch.content.substring(0, 60)}...'). Consider using /brain refine ${topMatch.thought_id} "updated insight" instead.`;
+        guidance = guidance ? `${guidance}\n\n${suggestion}` : suggestion;
+      }
+    }
+
     // Step 8: Implicit feedback (Section 3.10)
     if (session_id && thresholdMet) {
       // Agent contributed after a previous session query
@@ -238,11 +295,33 @@ async function handleMemoryRequest(params: MemoryRequest, reply: import("fastify
       contributor: r.contributor_name,
       score: parseFloat(r.score.toFixed(2)),
       content_preview: r.content.substring(0, 80),
+      refined_by: r.refined_by ?? null,
+      superseded: r.superseded ?? false,
     }));
 
     // Prepend guidance/disambiguation to response
     if (guidance) {
       responseText = `${guidance}\n\n${responseText}`;
+    }
+
+    // Lineage summary for trace
+    let lineageSummary: { has_lineage: boolean; chain_length: number; deepest_ancestor: string | null; latest_refinement: string | null } | undefined;
+    if (contributedThoughtId && isExplicitIteration) {
+      try {
+        const lineage = await getLineage(contributedThoughtId);
+        if (lineage.chain.length > 1) {
+          const ancestors = lineage.chain.filter((n) => n.depth < 0);
+          const descendants = lineage.chain.filter((n) => n.depth > 0);
+          lineageSummary = {
+            has_lineage: true,
+            chain_length: lineage.chain.length,
+            deepest_ancestor: ancestors.length > 0 ? ancestors[0].thought_id : null,
+            latest_refinement: descendants.length > 0 ? descendants[descendants.length - 1].thought_id : null,
+          };
+        }
+      } catch (err) {
+        console.error("Lineage summary failed:", err);
+      }
     }
 
     return reply.send({
@@ -261,6 +340,7 @@ async function handleMemoryRequest(params: MemoryRequest, reply: import("fastify
         contribution_threshold_met: thresholdMet,
         context_used: !!context,
         retrieval_method: "vector",
+        ...(lineageSummary ? { lineage_summary: lineageSummary } : {}),
       },
     });
 }

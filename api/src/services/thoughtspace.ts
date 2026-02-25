@@ -97,6 +97,24 @@ export interface RetrieveResult {
   score: number;
   pheromone_weight: number;
   tags: string[];
+  refined_by?: string;
+  superseded?: boolean;
+}
+
+export interface LineageResult {
+  thought_id: string;
+  chain: LineageNode[];
+  truncated: boolean;
+}
+
+export interface LineageNode {
+  thought_id: string;
+  thought_type: "original" | "refinement" | "consolidation";
+  content_preview: string;
+  contributor: string;
+  created_at: string;
+  source_ids: string[];
+  depth: number;
 }
 
 // --- think() — Section 4.1 ---
@@ -141,6 +159,22 @@ export async function think(params: ThinkParams): Promise<ThinkResult> {
   const thoughtId = uuidv4();
   const now = new Date().toISOString();
 
+  // Pheromone inheritance (Section 4.1)
+  let initialWeight = 1.0;
+  if (params.thought_type === "refinement" && params.source_ids.length > 0) {
+    const source = await getThoughtById(params.source_ids[0]);
+    if (source) {
+      const sourceWeight = (source.pheromone_weight as number) ?? 1.0;
+      initialWeight = Math.max(1.0, sourceWeight * 0.5);
+    }
+  } else if (params.thought_type === "consolidation" && params.source_ids.length > 0) {
+    const sources = await getThoughtsByIds(params.source_ids);
+    if (sources.length > 0) {
+      const avgWeight = sources.reduce((sum, s) => sum + ((s.pheromone_weight as number) ?? 1.0), 0) / sources.length;
+      initialWeight = Math.max(1.0, avgWeight * 0.5);
+    }
+  }
+
   const payload = {
     contributor_id: params.contributor_id,
     contributor_name: params.contributor_name,
@@ -155,7 +189,7 @@ export async function think(params: ThinkParams): Promise<ThinkResult> {
     accessed_by: [],
     access_log: [],
     co_retrieved_with: [],
-    pheromone_weight: 1.0,
+    pheromone_weight: initialWeight,
     knowledge_space_id: "ks-default",
   };
 
@@ -168,7 +202,7 @@ export async function think(params: ThinkParams): Promise<ThinkResult> {
     throw new ThoughtError("QDRANT_ERROR", `Qdrant upsert failed: ${err}`);
   }
 
-  return { thought_id: thoughtId, pheromone_weight: 1.0 };
+  return { thought_id: thoughtId, pheromone_weight: initialWeight };
 }
 
 // --- retrieve() — Section 4.2 (Phase 2: full access tracking + pheromone) ---
@@ -281,6 +315,41 @@ export async function retrieve(params: RetrieveParams): Promise<RetrieveResult[]
       tags: (p.tags as string[]) ?? [],
     };
   });
+
+  // Lineage awareness: mark superseded thoughts and adjust scores
+  const mappedIds = mapped.map((m) => m.thought_id);
+  const refinements = await getRefiningThoughts(mappedIds);
+  const supersededIds = new Set<string>();
+
+  for (const m of mapped) {
+    const ref = refinements.get(m.thought_id);
+    if (ref) {
+      m.refined_by = ref.refined_by;
+      m.superseded = true;
+      supersededIds.add(m.thought_id);
+    } else {
+      m.superseded = false;
+    }
+  }
+
+  // Score adjustments
+  for (const m of mapped) {
+    if (m.superseded) {
+      m.score *= 0.7; // 30% penalty for superseded
+    }
+    // Check if this thought is a refinement of a superseded thought in the result set
+    const thoughtPayload = results.find((r) => String(r.id) === m.thought_id)?.payload as Record<string, unknown> | undefined;
+    if (thoughtPayload) {
+      const sourceIds = (thoughtPayload.source_ids as string[]) ?? [];
+      const thoughtType = (thoughtPayload.thought_type as string) ?? "original";
+      if ((thoughtType === "refinement" || thoughtType === "consolidation") && sourceIds.some((sid) => supersededIds.has(sid))) {
+        m.score = Math.min(1.0, m.score * 1.2); // 20% boost, capped at 1.0
+      }
+    }
+  }
+
+  // Re-sort by adjusted score
+  mapped.sort((a, b) => b.score - a.score);
 
   // Log to query_log
   const logId = uuidv4();
@@ -495,6 +564,184 @@ export async function getExistingTags(): Promise<string[]> {
   }
 
   return Array.from(tagSet);
+}
+
+// --- Thought Lookup Helpers ---
+
+export async function getThoughtById(thoughtId: string): Promise<Record<string, unknown> | null> {
+  try {
+    const points = await client.retrieve(COLLECTION, {
+      ids: [thoughtId],
+      with_payload: true,
+      with_vector: false,
+    });
+    if (points.length === 0) return null;
+    return points[0].payload as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+async function getThoughtsByIds(thoughtIds: string[]): Promise<Record<string, unknown>[]> {
+  if (thoughtIds.length === 0) return [];
+  try {
+    const points = await client.retrieve(COLLECTION, {
+      ids: thoughtIds,
+      with_payload: true,
+      with_vector: false,
+    });
+    return points.map((p) => p.payload as Record<string, unknown>);
+  } catch {
+    return [];
+  }
+}
+
+// --- getRefiningThoughts() — batch lookup for superseded marking ---
+
+export async function getRefiningThoughts(thoughtIds: string[]): Promise<Map<string, { refined_by: string; created_at: string }>> {
+  const result = new Map<string, { refined_by: string; created_at: string }>();
+  if (thoughtIds.length === 0) return result;
+
+  try {
+    let offset: string | number | undefined = undefined;
+    while (true) {
+      const scrollResult = await client.scroll(COLLECTION, {
+        filter: {
+          must: [
+            {
+              key: "thought_type",
+              match: { any: ["refinement", "consolidation"] },
+            },
+          ],
+        },
+        limit: 100,
+        with_payload: true,
+        with_vector: false,
+        offset,
+      });
+
+      for (const point of scrollResult.points) {
+        const p = point.payload as Record<string, unknown>;
+        const sourceIds = (p.source_ids as string[]) ?? [];
+        const createdAt = (p.created_at as string) ?? "";
+        const pointId = String(point.id);
+
+        for (const sourceId of sourceIds) {
+          if (thoughtIds.includes(sourceId)) {
+            const existing = result.get(sourceId);
+            if (!existing || createdAt > existing.created_at) {
+              result.set(sourceId, { refined_by: pointId, created_at: createdAt });
+            }
+          }
+        }
+      }
+
+      if (!scrollResult.next_page_offset) break;
+      offset = scrollResult.next_page_offset as string | number | undefined;
+    }
+  } catch (err) {
+    console.error("getRefiningThoughts failed:", err);
+  }
+
+  return result;
+}
+
+// --- getLineage() — Section 4.4 ---
+
+export async function getLineage(thoughtId: string, maxDepth: number = 10): Promise<LineageResult> {
+  const chain: LineageNode[] = [];
+  const visited = new Set<string>();
+  let truncated = false;
+
+  // Get the target thought
+  const target = await getThoughtById(thoughtId);
+  if (!target) {
+    return { thought_id: thoughtId, chain: [], truncated: false };
+  }
+
+  chain.push({
+    thought_id: thoughtId,
+    thought_type: (target.thought_type as "original" | "refinement" | "consolidation") ?? "original",
+    content_preview: ((target.content as string) ?? "").substring(0, 80),
+    contributor: (target.contributor_name as string) ?? "",
+    created_at: (target.created_at as string) ?? "",
+    source_ids: (target.source_ids as string[]) ?? [],
+    depth: 0,
+  });
+  visited.add(thoughtId);
+
+  // Traverse UP (ancestors via source_ids)
+  async function traverseUp(id: string, currentDepth: number): Promise<void> {
+    if (currentDepth >= maxDepth) { truncated = true; return; }
+    const thought = await getThoughtById(id);
+    if (!thought) return;
+    const sourceIds = (thought.source_ids as string[]) ?? [];
+    for (const sourceId of sourceIds) {
+      if (visited.has(sourceId)) continue;
+      visited.add(sourceId);
+      const source = await getThoughtById(sourceId);
+      if (!source) continue;
+      chain.push({
+        thought_id: sourceId,
+        thought_type: (source.thought_type as "original" | "refinement" | "consolidation") ?? "original",
+        content_preview: ((source.content as string) ?? "").substring(0, 80),
+        contributor: (source.contributor_name as string) ?? "",
+        created_at: (source.created_at as string) ?? "",
+        source_ids: (source.source_ids as string[]) ?? [],
+        depth: -(currentDepth + 1),
+      });
+      await traverseUp(sourceId, currentDepth + 1);
+    }
+  }
+
+  // Traverse DOWN (descendants that reference this thought)
+  async function traverseDown(id: string, currentDepth: number): Promise<void> {
+    if (currentDepth >= maxDepth) { truncated = true; return; }
+    try {
+      const scrollResult = await client.scroll(COLLECTION, {
+        filter: {
+          must: [
+            {
+              key: "thought_type",
+              match: { any: ["refinement", "consolidation"] },
+            },
+          ],
+        },
+        limit: 100,
+        with_payload: true,
+        with_vector: false,
+      });
+
+      for (const point of scrollResult.points) {
+        const p = point.payload as Record<string, unknown>;
+        const sourceIds = (p.source_ids as string[]) ?? [];
+        const pointId = String(point.id);
+        if (sourceIds.includes(id) && !visited.has(pointId)) {
+          visited.add(pointId);
+          chain.push({
+            thought_id: pointId,
+            thought_type: (p.thought_type as "original" | "refinement" | "consolidation") ?? "original",
+            content_preview: ((p.content as string) ?? "").substring(0, 80),
+            contributor: (p.contributor_name as string) ?? "",
+            created_at: (p.created_at as string) ?? "",
+            source_ids: sourceIds,
+            depth: currentDepth + 1,
+          });
+          await traverseDown(pointId, currentDepth + 1);
+        }
+      }
+    } catch (err) {
+      console.error("getLineage traverseDown failed:", err);
+    }
+  }
+
+  await traverseUp(thoughtId, 0);
+  await traverseDown(thoughtId, 0);
+
+  // Sort by depth
+  chain.sort((a, b) => a.depth - b.depth);
+
+  return { thought_id: thoughtId, chain, truncated };
 }
 
 // --- Error class ---
