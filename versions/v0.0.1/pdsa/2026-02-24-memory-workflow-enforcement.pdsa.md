@@ -1,9 +1,9 @@
 # PDSA: Enforce Memory Usage in Agent Workflow
 
-**Date:** 2026-02-24
+**Date:** 2026-02-24 (reworked 2026-02-25)
 **Author:** PDSA Agent
 **Task:** memory-workflow-enforcement
-**Status:** COMPLETE
+**Status:** REWORK COMPLETE
 
 ---
 
@@ -23,139 +23,153 @@ Brain API usage is currently voluntary. The monitor skill tells agents "when to 
 - Brain API: `POST /api/v1/memory` (and soon GET) at `localhost:3200` / `bestpractice.xpollination.earth`
 - Current `active->approval` already requires `pdsa_ref` via `requiresDna`
 
+### Rework Context
+
+Original PDSA recommended Option 3 (do-or-explain with `requiresDnaOneOf`). Thomas overrode:
+
+> "Brain down MUST block workflow. The brain is infrastructure, not optional tooling. Escape hatches will be skipped."
+
+**Decision: Option 1 — Hard gate via existing `requiresDna` mechanism. No escape hatch. No `requiresDnaOneOf`.**
+
+Additional requirement: rework cycles must re-trigger memory operations. Every `rework→active` clears previous memory fields, forcing re-query.
+
 ---
 
 ## DO
 
-### Layer A: Agent Workflow Enforcement
+### Layer A: Agent Workflow Enforcement (Option 1 — Hard Gate)
 
-#### Three Options Evaluated
+#### Design Principle
 
-**Option 1: Workflow engine hard gate (`requiresDna`)**
+The brain is infrastructure. If it's down, agents wait — just like they'd wait if the database were down. No skip reasons, no escape hatches.
 
-How: Add `requiresDna: ['memory_query_id']` to `ready->active` transitions. Add `requiresDna: ['memory_contribution_id']` to completion transitions (`active->approval`, `active->review`).
-
-Pros:
-- Impossible to skip — engine blocks transition without the field
-- Already proven mechanism (`pdsa_ref` enforcement works)
-- Zero agent discipline required
-
-Cons:
-- Agents must write brain session IDs to DNA before transitioning — adds a step
-- If brain is down, agents are blocked (no fallback)
-- Overhead for trivial tasks (typo fix needs brain query?)
-
-**Option 2: Monitor skill soft enforcement (advisory + reminder)**
-
-How: Expand the brain section in SKILL.md. At task claim, skill instructions say "MUST query brain first". At task completion, "MUST contribute findings". No engine gate.
-
-Pros:
-- No code changes to workflow engine
-- Flexible — agent can skip for trivial tasks
-- Brain downtime doesn't block workflow
-
-Cons:
-- Relies on agent discipline — if it's not enforced, it WILL be skipped
-- Thomas's principle: "If the system does not PREVENT it, it WILL happen" (workflow-engine.js line 4)
-
-**Option 3: DNA template with engine validation**
-
-How: Add `memory_query_session` and `memory_contribution_id` as DNA fields. Engine validates presence on specific transitions. But allow a `memory_skip_reason` field as escape hatch for trivial tasks.
-
-Pros:
-- Enforced by engine (hard gate)
-- Escape hatch for trivial tasks — agent sets `memory_skip_reason: "typo fix, no domain knowledge involved"`
-- Brain downtime: agent sets `memory_skip_reason: "brain API unavailable"`
-- Audit trail — DNA shows whether brain was consulted
-
-Cons:
-- Slightly more complex than pure hard gate
-- Skip reason could be abused (but it's logged, so visible in review)
-
-#### Recommendation: Option 3 — DNA template with engine validation
-
-Rationale: Combines enforcement (Thomas's principle) with pragmatism (trivial tasks, brain downtime). The escape hatch is auditable — reviewers see when brain was skipped and why.
-
-#### Concrete Design
-
-**New DNA fields:**
+#### New DNA Fields
 
 | Field | Type | When Required | Description |
 |-------|------|---------------|-------------|
-| `memory_query_session` | string | `ready→active` | Session ID from brain query at task start |
-| `memory_contribution_id` | string | Before completion transitions | thought_id of contributed insight |
-| `memory_skip_reason` | string | Alternative to above | Why brain was skipped (auditable) |
+| `memory_query_session` | string | `ready→active`, `rework→active` | Session ID from brain query at task start |
+| `memory_contribution_id` | string | `active→approval`, `active→review` | thought_id of contributed insight |
 
-**Workflow engine changes:**
+No `memory_skip_reason` field. These are mandatory, period.
 
-Add to `ready->active` transitions for task type:
+#### Workflow Engine Changes
+
+**1. Task type — `ready→active` transitions (add `requiresDna`):**
+
 ```javascript
-'ready->active:pdsa': {
-  allowedActors: ['pdsa'],
-  requireRole: 'pdsa',
-  requiresDnaOneOf: ['memory_query_session', 'memory_skip_reason']
-},
+// Generic (fallback)
+'ready->active': { allowedActors: ['pdsa', 'dev', 'qa', 'liaison'], requiresDna: ['memory_query_session'] },
+// Role-specific
+'ready->active:pdsa': { allowedActors: ['pdsa'], requireRole: 'pdsa', requiresDna: ['memory_query_session'] },
+'ready->active:dev': { allowedActors: ['dev'], requireRole: 'dev', requiresDna: ['memory_query_session'] },
+'ready->active:qa': { allowedActors: ['qa'], requireRole: 'qa', requiresDna: ['memory_query_session'] },
+'ready->active:liaison': { allowedActors: ['liaison'], requireRole: 'liaison', requiresDna: ['memory_query_session'] },
 ```
 
-Add to `active->approval`:
+**2. Task type — `rework→active` transitions (add `requiresDna`):**
+
 ```javascript
-'active->approval': {
-  allowedActors: ['pdsa'],
-  requireRole: 'pdsa',
-  requiresDna: ['pdsa_ref'],
-  requiresDnaOneOf: ['memory_contribution_id', 'memory_skip_reason']
-},
+// Generic (fallback)
+'rework->active': { allowedActors: ['pdsa', 'dev', 'qa', 'liaison'], requiresDna: ['memory_query_session'] },
+// Role-specific
+'rework->active:pdsa': { allowedActors: ['pdsa'], requireRole: 'pdsa', requiresDna: ['memory_query_session'] },
+'rework->active:dev': { allowedActors: ['dev'], requireRole: 'dev', requiresDna: ['memory_query_session'] },
+'rework->active:qa': { allowedActors: ['qa'], requireRole: 'qa', requiresDna: ['memory_query_session'] },
+'rework->active:liaison': { allowedActors: ['liaison'], requireRole: 'liaison', requiresDna: ['memory_query_session'] },
 ```
 
-**New engine capability: `requiresDnaOneOf`**
-
-The engine currently has `requiresDna` (all fields required). Add `requiresDnaOneOf` — at least ONE of the listed fields must be present. This enables the skip/do pattern:
+**3. Task type — completion transitions (add `requiresDna` for `memory_contribution_id`):**
 
 ```javascript
-// In validateTransition():
-if (rule.requiresDnaOneOf && Array.isArray(rule.requiresDnaOneOf)) {
-  const hasAny = rule.requiresDnaOneOf.some(field => dna && dna[field]);
-  if (!hasAny) {
-    return `Transition requires one of: ${rule.requiresDnaOneOf.join(', ')}`;
+// Dev sends to review
+'active->review': { allowedActors: ['dev'], requireRole: 'dev', newRole: 'qa', requiresDna: ['memory_contribution_id'] },
+// Liaison content path
+'active->review:liaison': { allowedActors: ['liaison'], requireRole: 'liaison', newRole: 'liaison', requiresDna: ['memory_contribution_id'] },
+// PDSA sends to approval (already has pdsa_ref — now also requires memory_contribution_id)
+'active->approval': { allowedActors: ['pdsa'], requireRole: 'pdsa', requiresDna: ['pdsa_ref', 'memory_contribution_id'], newRole: 'liaison' },
+```
+
+**4. Bug type — same pattern:**
+
+```javascript
+'ready->active': { allowedActors: ['dev'], requireRole: 'dev', requiresDna: ['memory_query_session'] },
+'active->review': { allowedActors: ['dev'], newRole: 'qa', requiresDna: ['memory_contribution_id'] },
+'rework->active': { allowedActors: ['dev'], requiresDna: ['memory_query_session'] },
+```
+
+**5. `testing→active` transition (QA claims for implementation):**
+
+```javascript
+'testing->active': { allowedActors: ['qa'], requireRole: 'qa', requiresDna: ['memory_query_session'] },
+```
+
+#### Memory Field Clearing on Rework
+
+When a task transitions to `rework`, the previous `memory_query_session` and `memory_contribution_id` must be cleared so the agent claiming the rework is forced to re-query the brain.
+
+**Implementation approach:** Add a `clearsDna` property to rework-triggering transitions:
+
+```javascript
+'review->rework': { allowedActors: ['pdsa', 'qa'], newRole: 'dev', clearsDna: ['memory_query_session', 'memory_contribution_id'] },
+'approval->rework': { allowedActors: ['liaison', 'thomas'], newRole: 'pdsa', clearsDna: ['memory_query_session', 'memory_contribution_id'] },
+'review->rework:liaison': { allowedActors: ['liaison'], requireRole: 'liaison', newRole: 'liaison', clearsDna: ['memory_query_session', 'memory_contribution_id'] },
+```
+
+**Engine logic for `clearsDna`** (in the transition execution path, after validation passes):
+
+```javascript
+// In the transition handler (where DNA is updated):
+if (rule.clearsDna && Array.isArray(rule.clearsDna)) {
+  for (const field of rule.clearsDna) {
+    if (dna[field]) {
+      delete dna[field];
+    }
   }
+  // Persist the updated DNA
 }
 ```
 
-**Agent workflow with enforcement:**
+This is a new engine capability but simpler than `requiresDnaOneOf` — it's just field deletion on transition.
+
+#### Agent Workflow (Enforced)
 
 ```
-1. Agent picks up task (ready state)
-2. Before claiming (ready→active):
+1. Agent discovers task (ready or rework state)
+2. Before claiming (ready→active or rework→active):
    a. Query brain: curl POST /api/v1/memory with task topic
    b. Write to DNA: memory_query_session = trace.session_id
-   c. OR write: memory_skip_reason = "reason"
-3. Claim task: transition ready→active (engine validates DNA)
+      node interface-cli.js update-dna <slug> '{"memory_query_session":"<session_id>"}' <actor>
+3. Claim task: transition ready→active (engine validates memory_query_session in DNA)
 4. Do the work
 5. Before submitting (active→approval or active→review):
    a. Contribute to brain: curl POST /api/v1/memory with key learning
-   b. Write to DNA: memory_contribution_id = thought_id from trace
-   c. OR write: memory_skip_reason = "reason"
-6. Submit: transition (engine validates DNA)
+   b. Write to DNA: memory_contribution_id = thought_id from response
+      node interface-cli.js update-dna <slug> '{"memory_contribution_id":"<thought_id>"}' <actor>
+6. Submit: transition (engine validates memory_contribution_id in DNA)
 ```
 
-**Monitor skill update:**
+If brain is down at step 2a or 5a → agent waits and retries. Brain is infrastructure.
 
-Update the "Brain Integration" section in SKILL.md to document the MANDATORY workflow:
-- Move from "When to use the brain" (advisory) to "MANDATORY brain operations" (enforced)
-- Document the DNA fields agents must set
-- Show the curl + update-dna pattern
+#### Monitor Skill Update
+
+Update `~/.claude/skills/monitor/SKILL.md` brain section:
+- Change "When to use the brain" to "MANDATORY Brain Operations"
+- Document the two required DNA fields
+- Show the curl + update-dna command sequence
+- State clearly: "If brain is unavailable, wait and retry. Do NOT skip."
+- Document that rework clears memory fields — agent must re-query
 
 ---
 
 ### Layer B: Thomas Conversational Access via Claude Web
 
+**Approved as-is from original PDSA.** No changes needed.
+
 #### Design
 
-Thomas uses Claude web (claude.ai) to converse with the brain. The GET endpoint (UC1, in progress) enables `web_fetch` from Claude web.
+Thomas uses Claude web (claude.ai) to converse with the brain. The GET endpoint (UC1) enables `web_fetch` from Claude web.
 
-**What Thomas needs:**
-
-1. **Claude web project instruction** — A short system prompt for a Claude web project:
+**Claude web project instruction:**
 
 ```
 You have access to the XPollination shared agent brain.
@@ -173,38 +187,37 @@ Rules:
 - Parse result.highways_nearby for high-traffic knowledge paths
 ```
 
-2. **Agent identity:**
-   - `agent_id`: `thomas` (not `agent-thomas` — he's the human, not an agent)
-   - `agent_name`: `Thomas Pichler`
+**Agent identity:** `agent_id`: `thomas`, `agent_name`: `Thomas Pichler`
 
-3. **Session pattern:**
-   - Generate a UUID at conversation start, reuse throughout
-   - Or let the system generate one (omit session_id on first call, use returned `trace.session_id` for subsequent calls)
-
-4. **No additional UX needed:**
-   - The GET endpoint + project instruction is sufficient
-   - Claude web handles URL encoding automatically via web_fetch
-   - Thomas can contribute strategic thoughts that agents then discover
-   - His contributions appear as `contributor: "Thomas Pichler"` — distinguishable from agent contributions
+**Session pattern:** Generate UUID at conversation start, reuse throughout. Or omit session_id on first call, use returned `trace.session_id` for subsequent calls.
 
 ---
 
 ## STUDY
 
-### Key Architectural Insight
+### Key Design Decision
 
-The `requiresDnaOneOf` pattern is the important addition. It enables a **do-or-explain** gate: either do the expected action OR explain why you didn't. This is better than a hard gate (which blocks on brain downtime) and better than advisory (which gets ignored).
+Thomas's override of Option 3 in favor of Option 1 reflects a clear architectural principle: **the brain is infrastructure, not a feature.** When infrastructure is down, work stops. This is the same as how agents can't work if the database is down or if git is unreachable.
 
-This pattern could generalize beyond memory — any "recommended but not always applicable" workflow step could use `requiresDnaOneOf: ['did_thing', 'skip_reason']`.
+The `requiresDnaOneOf` pattern (do-or-explain) is NOT being implemented. The existing `requiresDna` mechanism (all fields required) is sufficient.
+
+### New Engine Capability: `clearsDna`
+
+The one new engine capability needed is `clearsDna` — field deletion on rework transitions. This ensures agents can't coast on stale memory queries across rework cycles. Every active phase starts fresh with the brain.
+
+This is simpler than `requiresDnaOneOf` and doesn't introduce optional paths.
 
 ### What Changes Where
 
 | Component | Change | Scope |
 |-----------|--------|-------|
-| `workflow-engine.js` | Add `requiresDnaOneOf` validation logic | ~10 lines in `validateTransition()` |
-| `workflow-engine.js` | Add `requiresDnaOneOf` to transition rules | 4-6 transition entries updated |
-| `workflow-engine.test.ts` | Tests for new `requiresDnaOneOf` | ~20 lines |
-| `~/.claude/skills/monitor/SKILL.md` | Update brain section from advisory to mandatory | Section rewrite |
+| `workflow-engine.js` | Add `requiresDna: ['memory_query_session']` to 10 transitions | Property additions only |
+| `workflow-engine.js` | Add `requiresDna: ['memory_contribution_id']` to 4 transitions | Property additions only |
+| `workflow-engine.js` | Add `clearsDna` handling in transition execution | ~8 lines new logic |
+| `workflow-engine.js` | Add `clearsDna` to 3 rework transitions | Property additions |
+| `workflow-engine.test.ts` | Tests for memory_query_session/memory_contribution_id gates | ~30 lines |
+| `workflow-engine.test.ts` | Tests for clearsDna on rework transitions | ~15 lines |
+| `~/.claude/skills/monitor/SKILL.md` | Update brain section to MANDATORY | Section rewrite |
 | Claude web project | Create project instruction for Thomas | ~10 lines of text |
 
 ### What Does NOT Change
@@ -213,13 +226,15 @@ This pattern could generalize beyond memory — any "recommended but not always 
 - interface-cli.js — `update-dna` already accepts arbitrary JSON fields
 - Caddy/HTTPS — no changes
 - Existing DNA fields — additive only
+- `validateDnaRequirements()` function — already handles `requiresDna`, just needs `clearsDna` handling in the transition executor
 
 ---
 
 ## ACT
 
-Design ready. Two deliverables:
-1. Engine changes (requiresDnaOneOf + transition rules) → DEV task
-2. Monitor skill update + Claude web instruction → Can be done by LIAISON or PDSA directly
+Design ready. Three deliverables:
+1. **Engine changes** (requiresDna additions + clearsDna) → DEV task in xpollination-mcp-server
+2. **Monitor skill update** → DEV or PDSA can update SKILL.md
+3. **Claude web project instruction** → LIAISON presents to Thomas for setup
 
-No open questions.
+No open questions. No `requiresDnaOneOf`. Hard gates only.
