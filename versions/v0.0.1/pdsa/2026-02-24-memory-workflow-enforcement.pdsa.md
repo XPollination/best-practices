@@ -3,7 +3,7 @@
 **Date:** 2026-02-24 (reworked 2026-02-25)
 **Author:** PDSA Agent
 **Task:** memory-workflow-enforcement
-**Status:** REWORK v2 COMPLETE (Layer B: MCP wrapper replaces web_fetch)
+**Status:** REWORK v3 COMPLETE (Layer B: implementation-ready MCP wrapper spec)
 
 ---
 
@@ -163,79 +163,160 @@ Update `~/.claude/skills/monitor/SKILL.md` brain section:
 
 ### Layer B: Thomas Conversational Access via Claude Web
 
-**REWORKED (v2):** Claude web does NOT have `web_fetch`. It connects to external APIs via MCP connectors (Settings > Connectors). The previous design (raw GET endpoint) does not work. Claude web needs a thin MCP-protocol wrapper around the brain API.
+**REWORKED (v3):** Implementation-ready specification. Claude web connects via MCP connectors, not web_fetch.
 
 #### Discovery
 
-Claude.ai supports remote MCP servers via Settings > Connectors > Add custom connector. Requirements:
-- **Transport:** Streamable HTTP (preferred) or SSE (deprecated soon)
-- **Auth:** Authless or OAuth. Authless is sufficient for brain API (already behind Caddy HTTPS)
-- **Features:** Tools, prompts, resources. No subscriptions or sampling yet.
+Claude.ai supports remote MCP servers via Settings > Connectors > Add custom connector.
+- **Transport:** Streamable HTTP (SSE deprecated soon)
+- **Auth:** Authless supported (sufficient — already behind Caddy HTTPS)
+- **SDK:** `@modelcontextprotocol/sdk@1.27.1` — `StreamableHTTPServerTransport` from `@modelcontextprotocol/sdk/server/streamableHttp.js`
 - Source: https://support.claude.com/en/articles/11503834-building-custom-connectors-via-remote-mcp-servers
 
-#### Design: Brain MCP Remote Server
+#### File Structure
 
-A thin MCP server that wraps the brain API. Runs alongside the existing Fastify server.
+```
+best-practices/api/
+├── src/
+│   ├── index.ts              # Existing — add MCP server startup call
+│   └── mcp/
+│       └── brain-mcp.ts      # NEW — complete MCP server (~90 lines)
+└── package.json              # Add @modelcontextprotocol/sdk dependency
+```
 
-**Stack:** TypeScript, `@modelcontextprotocol/sdk`, Streamable HTTP transport, Node.js HTTP
-**Location:** `best-practices/api/src/mcp/` (alongside existing brain API)
-**Port:** 3201 (brain API is 3200)
-**URL:** `https://bestpractice.xpollination.earth/mcp` (Caddy routes `/mcp` to port 3201)
+#### Dependency Addition
 
-**Tools exposed (2):**
+```bash
+cd /home/developer/workspaces/github/PichlerThomas/best-practices/api
+source ~/.nvm/nvm.sh
+npm install @modelcontextprotocol/sdk@1.27.1
+```
 
-| Tool | Parameters | Description |
-|------|-----------|-------------|
-| `query_brain` | `prompt` (required), `context` (optional), `session_id` (optional) | Query the brain. Returns response + sources + highways. |
-| `contribute_to_brain` | `prompt` (required), `context` (optional), `session_id` (optional) | Contribute a thought. Prompt must be >50 chars and declarative. |
+This brings in `zod` (already a dep of SDK), `@hono/node-server`, and other SDK dependencies. No separate zod install needed.
 
-Both tools call `POST /api/v1/memory` internally with `agent_id: "thomas"`, `agent_name: "Thomas Pichler"`.
-
-**Implementation (~100 lines):**
+#### File 1: `api/src/mcp/brain-mcp.ts` (NEW — complete implementation)
 
 ```typescript
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { createServer } from "http";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { createServer, IncomingMessage, ServerResponse } from "node:http";
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 
-const server = new McpServer({
-  name: "xpollination-brain",
-  version: "0.1.0",
-});
+const BRAIN_API = "http://localhost:3200/api/v1/memory";
+const AGENT_ID = "thomas";
+const AGENT_NAME = "Thomas Pichler";
+const MCP_PORT = 3201;
 
-server.tool("query_brain",
-  "Query the shared agent brain for knowledge on a topic",
-  { prompt: z.string(), context: z.string().optional(), session_id: z.string().optional() },
-  async ({ prompt, context, session_id }) => {
-    const res = await fetch("http://localhost:3200/api/v1/memory", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt, agent_id: "thomas", agent_name: "Thomas Pichler", context, session_id }),
-    });
-    const data = await res.json();
-    return { content: [{ type: "text", text: JSON.stringify(data.result, null, 2) }] };
+async function callBrain(prompt: string, context?: string, session_id?: string): Promise<unknown> {
+  const body: Record<string, string> = { prompt, agent_id: AGENT_ID, agent_name: AGENT_NAME };
+  if (context) body.context = context;
+  if (session_id) body.session_id = session_id;
+
+  const res = await fetch(BRAIN_API, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Brain API error ${res.status}: ${err}`);
   }
-);
+  return res.json();
+}
 
-server.tool("contribute_to_brain",
-  "Contribute a thought to the shared agent brain (>50 chars, declarative)",
-  { prompt: z.string().min(51), context: z.string().optional(), session_id: z.string().optional() },
-  async ({ prompt, context, session_id }) => {
-    const res = await fetch("http://localhost:3200/api/v1/memory", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt, agent_id: "thomas", agent_name: "Thomas Pichler", context, session_id }),
+export async function startMcpServer(): Promise<void> {
+  const mcp = new McpServer(
+    { name: "xpollination-brain", version: "0.1.0" },
+    { capabilities: { tools: {} } }
+  );
+
+  mcp.tool(
+    "query_brain",
+    "Query the shared agent brain for knowledge on a topic. Returns matching thoughts with sources and high-traffic knowledge paths.",
+    {
+      prompt: z.string().describe("Natural language question or topic to search"),
+      context: z.string().optional().describe("What you are currently working on — changes retrieval direction"),
+      session_id: z.string().optional().describe("Reuse from previous call for conversation continuity"),
+    },
+    async ({ prompt, context, session_id }) => {
+      const data = await callBrain(prompt, context, session_id) as Record<string, unknown>;
+      return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+    }
+  );
+
+  mcp.tool(
+    "contribute_to_brain",
+    "Contribute a strategic thought or learning to the shared agent brain. Must be >50 chars and a declarative statement (not a question).",
+    {
+      prompt: z.string().min(51).describe("Declarative statement to store as knowledge (>50 chars, not a question)"),
+      context: z.string().optional().describe("What you are currently working on — stored as provenance"),
+      session_id: z.string().optional().describe("Reuse from previous call for conversation continuity"),
+    },
+    async ({ prompt, context, session_id }) => {
+      const data = await callBrain(prompt, context, session_id) as Record<string, unknown>;
+      const trace = data.trace as Record<string, unknown> | undefined;
+      const contributed = trace?.thoughts_contributed ?? 0;
+      const prefix = contributed > 0
+        ? "Thought stored successfully."
+        : "Not stored (too short or interrogative). Still retrieved related thoughts:";
+      return { content: [{ type: "text" as const, text: `${prefix}\n\n${JSON.stringify(data, null, 2)}` }] };
+    }
+  );
+
+  // One transport per connection — each request creates a stateless transport
+  const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse) => {
+    // CORS for Claude.ai
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, mcp-session-id");
+    res.setHeader("Access-Control-Expose-Headers", "mcp-session-id");
+
+    if (req.method === "OPTIONS") {
+      res.writeHead(204);
+      res.end();
+      return;
+    }
+
+    // Stateless mode: no session management needed for Thomas's use case
+    const transport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: undefined, // stateless
     });
-    const data = await res.json();
-    return { content: [{ type: "text", text: `Stored. Thought ID: ${data.trace?.thoughts_contributed > 0 ? 'contributed' : 'not stored (too short or interrogative)'}. Response:\n${JSON.stringify(data.result, null, 2)}` }] };
-  }
-);
 
-// Streamable HTTP transport — exact wiring depends on SDK version
-// Use @modelcontextprotocol/sdk StreamableHTTPServerTransport
+    await mcp.connect(transport);
+
+    await transport.handleRequest(req, res);
+  });
+
+  httpServer.listen(MCP_PORT, "0.0.0.0", () => {
+    console.log(`MCP server (brain wrapper) running on http://0.0.0.0:${MCP_PORT}`);
+  });
+}
 ```
 
-**Caddy config addition:**
+#### File 2: `api/src/index.ts` (MODIFY — add one import + one call)
+
+Add at the top with other imports:
+```typescript
+import { startMcpServer } from "./mcp/brain-mcp.js";
+```
+
+Add after line 31 (`await app.listen(...)`) and before the final console.log:
+```typescript
+await startMcpServer();
+```
+
+Final `index.ts` lines 30-33 become:
+```typescript
+await app.listen({ port: 3200, host: "0.0.0.0" });
+console.log("API server running on http://0.0.0.0:3200");
+await startMcpServer();
+```
+
+#### Caddy Config (`/etc/caddy/Caddyfile`)
+
+Current Caddy config routes all traffic to port 3200. Add MCP path handling:
 
 ```
 bestpractice.xpollination.earth {
@@ -248,31 +329,105 @@ bestpractice.xpollination.earth {
 }
 ```
 
-**Claude.ai connector setup (Thomas does this once):**
-1. Go to claude.ai → Settings → Connectors
-2. Add custom connector
-3. URL: `https://bestpractice.xpollination.earth/mcp`
-4. Transport: Streamable HTTP
-5. Auth: None
+**Note:** Caddy config is at `/etc/caddy/Caddyfile` (requires thomas user). After editing: `sudo systemctl reload caddy`.
 
-**Claude web project instruction (updated):**
+#### Startup
+
+MCP server starts alongside the brain API in the same process. One `npm run dev` (or `tsx src/index.ts`) starts both:
+- Port 3200: Brain API (Fastify)
+- Port 3201: MCP server (raw Node.js HTTP)
+
+No separate systemd unit needed. If the brain API crashes, the MCP server goes down too — this is correct behavior (brain is infrastructure).
+
+#### npm script (no change needed)
+
+Existing `"dev": "tsx src/index.ts"` already covers both servers since MCP starts from index.ts.
+
+#### Claude.ai Connector Setup (Thomas does this once)
+
+1. Go to claude.ai → Settings → Connectors
+2. Click "Add custom connector"
+3. URL: `https://bestpractice.xpollination.earth/mcp`
+4. Name: `XPollination Brain`
+5. Auth: None (authless)
+6. Save
+
+#### Claude.ai Project Instruction (for Thomas's XPollination project)
 
 ```
 You have access to the XPollination shared agent brain via MCP tools.
 
-Use query_brain to ask questions or search knowledge.
-Use contribute_to_brain to share strategic insights (>50 chars, declarative statements).
+## Available Tools
 
-Rules:
-- For questions: just ask naturally via query_brain
+**query_brain** — Ask questions or search knowledge
+- prompt: your question in natural language
+- context: (optional) what you're working on, changes retrieval direction
+- session_id: (optional) reuse across calls for conversation continuity
+
+**contribute_to_brain** — Share strategic thoughts and learnings
+- prompt: declarative statement, >50 chars (questions are not stored)
+- context: (optional) what you're working on, stored as provenance
+- session_id: (optional) reuse across calls
+
+## Usage
+- For questions: use query_brain naturally
 - For contributions: make declarative statements via contribute_to_brain
-- Reuse session_id within a conversation for continuity
-- The response includes sources (provenance) and highways (high-traffic knowledge)
+- Reuse session_id from first response for subsequent calls in same conversation
+- Response includes: sources (provenance), highways (high-traffic knowledge paths)
+
+## Your Identity
+You appear as agent_id=thomas, agent_name=Thomas Pichler in the brain.
 ```
 
 **Agent identity:** Hardcoded in MCP server: `agent_id: "thomas"`, `agent_name: "Thomas Pichler"`
 
-**Session pattern:** Omit session_id on first call, use returned session_id for subsequent calls in same conversation.
+#### Acceptance Criteria (testable without Claude.ai)
+
+**AC-B1: MCP server starts**
+```bash
+source ~/.nvm/nvm.sh && cd best-practices/api && npm run dev
+# Both "API server running on http://0.0.0.0:3200" and
+# "MCP server (brain wrapper) running on http://0.0.0.0:3201" appear
+```
+
+**AC-B2: MCP endpoint responds to protocol**
+```bash
+# MCP initialize request
+curl -s -X POST http://localhost:3201 \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}'
+# Expected: JSON-RPC response with server capabilities including tools
+```
+
+**AC-B3: Tool listing**
+```bash
+curl -s -X POST http://localhost:3201 \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}'
+# Expected: list with query_brain and contribute_to_brain tools
+```
+
+**AC-B4: Query tool works**
+```bash
+curl -s -X POST http://localhost:3201 \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"query_brain","arguments":{"prompt":"role separation"}}}'
+# Expected: JSON-RPC response with brain query results
+```
+
+**AC-B5: Contribute tool works**
+```bash
+curl -s -X POST http://localhost:3201 \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"contribute_to_brain","arguments":{"prompt":"Test contribution from MCP wrapper acceptance test — this is a declarative statement over fifty characters long."}}}'
+# Expected: JSON-RPC response indicating thought stored
+```
+
+**AC-B6: CORS headers present**
+```bash
+curl -s -I -X OPTIONS http://localhost:3201
+# Expected: Access-Control-Allow-Origin: *, status 204
+```
 
 ---
 
@@ -301,9 +456,11 @@ This is simpler than `requiresDnaOneOf` and doesn't introduce optional paths.
 | `workflow-engine.test.ts` | Tests for memory_query_session/memory_contribution_id gates | ~30 lines |
 | `workflow-engine.test.ts` | Tests for clearsDna on rework transitions | ~15 lines |
 | `~/.claude/skills/monitor/SKILL.md` | Update brain section to MANDATORY | Section rewrite |
-| `best-practices/api/src/mcp/` | New MCP remote server wrapping brain API | ~100 lines TypeScript |
-| Caddy config | Add `/mcp` route to port 3201 | ~3 lines |
-| Claude.ai | Thomas adds custom connector in Settings | One-time manual setup |
+| `api/src/mcp/brain-mcp.ts` | NEW — complete MCP server wrapping brain API | ~90 lines TypeScript, copy-paste ready |
+| `api/src/index.ts` | Add import + startMcpServer() call | 2 lines added |
+| `api/package.json` | Add `@modelcontextprotocol/sdk@1.27.1` dependency | `npm install` |
+| `/etc/caddy/Caddyfile` | Add `/mcp*` route to port 3201 | ~6 lines, requires thomas user |
+| Claude.ai Settings | Thomas adds custom connector | One-time manual setup |
 
 ### What Does NOT Change
 
@@ -311,6 +468,7 @@ This is simpler than `requiresDnaOneOf` and doesn't introduce optional paths.
 - interface-cli.js — `update-dna` already accepts arbitrary JSON fields
 - Existing DNA fields — additive only
 - `validateDnaRequirements()` function — already handles `requiresDna`, just needs `clearsDna` handling in the transition executor
+- Brain API (`api/src/routes/memory.ts`, `api/src/services/thoughtspace.ts`) — no changes
 
 ---
 
