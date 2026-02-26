@@ -3,7 +3,7 @@
 **Slug:** `brain-contribution-quality-maps-not-breadcrumbs`
 **Date:** 2026-02-26
 **Author:** PDSA agent
-**Status:** DESIGN
+**Status:** DESIGN (Rework v1 — knowledge evolution + Neuroimaginations-Coach case study)
 
 ---
 
@@ -13,10 +13,32 @@
 Brain currently stores breadcrumbs, not maps. During XPollination Gründung recovery (2026-02-26), LIAISON needed 4 queries and manual Qdrant access to reconstruct a management summary from 6+ fragmented entries. Many entries are keyword echoes (search terms stored as thoughts), not self-contained knowledge. No structured state snapshots exist for complex topics.
 
 ### Root Cause
-No contribution quality standard. The brain accepts everything >50 chars that isn't purely interrogative. Agents store whatever they produce — keyword lists, short labels, partial context. Result: high quantity, low recoverability.
+Two systemic failures:
+
+1. **No contribution quality standard.** Brain accepts everything >50 chars. Agents store keyword lists, short labels, partial context. High quantity, low recoverability.
+
+2. **No knowledge evolution mechanism.** Facts change, but the brain is append-only with reinforcement. Wrong facts with many repetitions outweigh corrections with single contributions. The system actively resists corrections because the wrong fact has more evidence than the right one.
+
+### Case Study: Neuroimaginations-Coach Attribution Error
+
+**What happened:** Multiple agents across multiple sessions (v0.0.1, v0.0.2, v0.0.3) listed Thomas as "Zertifizierter Neuroimaginations-Coach." Thomas corrected this multiple times. The correct fact: Neuroimaginations-Coaching is offered via Joint Venture with Gerhard Quiring — Thomas is NOT the certified coach.
+
+**Why it persisted:**
+1. NAS source files (ugp-kurzkonzept-xpollination.md, unternehmensberater-analysis.md) contained the original incorrect attribution
+2. Agents read source files and repeated the error
+3. Brain stored the error with reinforcement from multiple agents/sessions
+4. Corrections had low pheromone weight compared to many repetitions
+5. Auto-compact drops corrections (leaves) while keeping old facts (trunk)
+
+**The Tree Problem:** Trunk facts have deep roots from many reinforcements. Leaf corrections are fragile and fall off during compaction. The brain needs a **superseding mechanism**: when a correction is contributed, it must explicitly mark old entries as superseded, not just add a competing entry with lower weight.
+
+**Structural lesson:** This is not just a retrieval quality problem — it is a **knowledge evolution** problem. Facts change. The system must support fact lifecycle management, not just fact storage.
 
 ### Goal
-Define contribution quality patterns that make brain knowledge self-contained and recoverable. Apply PageIndex.ai's holistic context principles to our Qdrant-based architecture. Produce implementation-ready design for future brain API iteration.
+1. Define contribution quality patterns that make brain knowledge self-contained and recoverable
+2. **Design knowledge evolution mechanisms** — corrections must supersede established facts, source file contamination must be detectable
+3. Apply PageIndex.ai's holistic context principles to our Qdrant-based architecture
+4. Produce implementation-ready design for future brain API iteration
 
 ---
 
@@ -48,6 +70,7 @@ Every contribution must declare a **thought_category**:
 | `decision_record` | Key decision with reasoning | `topic`, `alternatives_considered` | "Befähigungsprüfung chosen over Vorpraxis because Kleinstunternehmen rule makes Vorpraxis risky" |
 | `operational_learning` | Reusable insight from experience | `topic`, `source_ref` | "Agents must query brain on session start — 4 queries needed to reconstruct Gründung state proves recovery depends on pre-existing knowledge" |
 | `task_outcome` | Result of completed task | `source_ref` (task slug) | "task-boundary-brain-protocol: designed brain-gated transitions with PAUSE+RESUME blocked state, WORKFLOW.md v13" |
+| `correction` | Explicit fact correction with superseding | `topic`, `supersedes` (thought IDs), `corrected_fact`, `correct_fact` | "CORRECTION: Thomas is NOT Zertifizierter Neuroimaginations-Coach. Correct: NI-Coaching via JV with Gerhard Quiring. Supersedes: [ids of wrong entries]" |
 
 **Uncategorized contributions** (current behavior) still accepted but flagged as `uncategorized` in payload. The threshold (>50 chars, not interrogative) remains as minimum gate.
 
@@ -88,6 +111,7 @@ Structured contributions (`state_snapshot`, `decision_record`, `task_outcome`) m
 | **Orphaned reference** | "See the PDSA doc for details" | No self-contained content, depends on external context | Self-containment rule: if thought contains "see X" without also containing the referenced substance, flag |
 | **Stale snapshot** | State snapshot from 2 weeks ago never updated | Decays via pheromone but still returns in queries | `temporal_scope` field enables time-aware retrieval; old snapshots get lower relevance |
 | **Duplicate near-miss** | Same insight rephrased 3 times across sessions | Brain already suggests refinement at >85% similarity | Strengthen: at >90% similarity, auto-flag and suggest consolidation |
+| **Stale source contamination** | Agent reads old NAS file, contributes outdated fact that has been corrected | Re-introduces wrong facts that override corrections via volume | Correction category with explicit superseding; retrieval warns when contributing fact contradicts existing correction |
 
 ### 3. State Snapshot Pattern
 
@@ -279,16 +303,162 @@ Add to response:
 
 No breaking changes. Each phase adds value independently.
 
+### 7. Knowledge Evolution — Fact Lifecycle Management
+
+This section addresses the core rework feedback: the brain must support **fact evolution**, not just fact storage. The Neuroimaginations-Coach case proves that append-only + reinforcement actively resists corrections.
+
+#### 7a. The Tree Problem
+
+```
+TRUNK (wrong fact, deeply rooted):
+  "Thomas is Zertifizierter Neuroimaginations-Coach"
+  → Contributed by 3+ agents across 3+ sessions
+  → Reinforced by: pheromone from access_count=15, accessed_by=5 agents
+  → Source: NAS files ugp-kurzkonzept, unternehmensberater-analysis
+
+LEAF (correction, fragile):
+  "Thomas is NOT the NI-Coach, it's a JV with Gerhard Quiring"
+  → Contributed once by Thomas
+  → pheromone_weight: 1.0 (base)
+  → No reinforcement (rarely retrieved because trunk fact matches queries first)
+```
+
+The trunk fact wins every similarity search because: (1) more contributors = more embedding reinforcement, (2) higher pheromone from more accesses, (3) correction has low traffic because queries match the wrong fact first.
+
+#### 7b. Correction Category — Explicit Superseding
+
+A new thought category `correction` with hard superseding semantics:
+
+```json
+{
+  "thought_category": "correction",
+  "corrected_fact": "Thomas is Zertifizierter Neuroimaginations-Coach",
+  "correct_fact": "Neuroimaginations-Coaching offered via Joint Venture with Gerhard Quiring. Thomas is NOT the certified coach.",
+  "supersedes": ["thought-id-1", "thought-id-2", "thought-id-3"],
+  "topic": "xpollination-gruendung",
+  "source_ref": { "type": "url", "value": "human-correction", "project": "best-practices" }
+}
+```
+
+**When a correction is contributed:**
+1. All thought IDs in `supersedes` are marked `superseded: true` in Qdrant payload
+2. Superseded thoughts get **hard penalty**: -50% score (up from current -30% for refinement superseding)
+3. The correction itself gets a **correction_boost**: +30% score in retrieval
+4. Guidance response warns: "This correction supersedes N previous thoughts on this topic"
+
+**Key difference from refinement:**
+- **Refinement** = "here's an updated version of what I said" (evolutionary, single lineage)
+- **Correction** = "that fact was WRONG, here is the right fact" (contradictory, cross-lineage, may supersede thoughts from different contributors)
+
+#### 7c. Contradiction Detection
+
+When a new contribution is stored, check if it contradicts an existing `correction`:
+
+```typescript
+// After storing new thought, check for contradictions
+const corrections = await searchByCategory('correction', newThought.topic);
+for (const correction of corrections) {
+  const similarityToWrongFact = cosineSimilarity(
+    newThought.embedding,
+    await embed(correction.corrected_fact)
+  );
+  if (similarityToWrongFact > 0.85) {
+    // New contribution looks like the wrong fact that was already corrected
+    newThought.quality_flags.push('contradicts_correction');
+    newThought.contradicted_by = correction.thought_id;
+    // Return warning in response
+    guidance = `WARNING: This contribution is similar to a corrected fact. ` +
+      `Correction ${correction.thought_id}: "${correction.correct_fact}". ` +
+      `Please verify your source is current.`;
+  }
+}
+```
+
+This directly addresses the **stale source contamination** problem: when an agent reads an old NAS file and contributes a fact that has already been corrected, the system warns immediately.
+
+#### 7d. Source File Contamination Prevention
+
+The Neuroimaginations-Coach case had a specific attack vector: NAS source files contained wrong facts, agents read them, and reproduced the error. Prevention requires action at two levels:
+
+**Level 1 — Brain-side (this design):**
+- Contradiction detection (7c) catches re-introduction of corrected facts
+- Quality flag `contradicts_correction` alerts the contributing agent
+- Response guidance includes the correct fact so the agent can self-correct
+
+**Level 2 — Source-side (separate concern, documented here for completeness):**
+- Correct the source files themselves (NAS docs)
+- Add correction notices to files that are known to contain outdated facts
+- Add anti-pattern warnings to agent profile files (e.g., profile-framing.md)
+
+Level 2 is out of scope for this brain API design but must happen in parallel.
+
+#### 7e. Correction Lifecycle
+
+```
+DISCOVER: Agent or human identifies wrong fact in brain
+  → Query brain to find all instances of wrong fact
+  → Collect thought IDs of wrong entries
+
+CORRECT: Contribute correction with explicit superseding
+  → category: correction
+  → supersedes: [list of wrong thought IDs]
+  → corrected_fact: what was wrong
+  → correct_fact: what is right
+
+PROPAGATE: System automatically handles
+  → Superseded thoughts get -50% penalty
+  → Correction gets +30% boost
+  → Future contributions matching wrong fact get flagged
+
+VERIFY: Next retrieval on this topic
+  → Correction appears prominently
+  → Old wrong facts are deprioritized but not deleted (audit trail)
+  → Guidance explains the correction history
+```
+
+#### 7f. State Snapshots as Evolution Anchors
+
+State snapshots (Section 3) solve the evolution problem for complex topics:
+
+**Before snapshots (current):**
+```
+Many fragments from many sessions → some wrong, some right, no way to tell which is current
+```
+
+**After snapshots:**
+```
+One authoritative state_snapshot per topic, refined on each update
+→ Snapshot IS the current truth
+→ Old fragments automatically deprioritized (superseded by refinement)
+→ Corrections can supersede specific wrong fragments AND update the snapshot
+```
+
+The state snapshot becomes the **single source of truth** for a topic in the brain, just like WORKFLOW.md is the single source of truth for workflow design. When queried, the latest snapshot is the answer — no assembly from fragments needed.
+
+### 8. Updated Migration Path
+
+| Phase | Scope | Blocking? |
+|---|---|---|
+| Phase 1: Schema extension | Add new fields to payload, all optional (including correction fields) | No — backward compatible |
+| Phase 2: Quality detection | Server-side flag detection + contradiction detection (7c) | No — flags are advisory |
+| Phase 3: Correction category | Hard superseding semantics, -50% penalty, +30% boost | No — enhances existing results |
+| Phase 4: Retrieval enhancement | Category filtering, flag penalties, contradiction warnings | No — enhances existing results |
+| Phase 5: Agent skill update | Update SKILL.md with category templates, correction workflow | No — old patterns still work |
+| Phase 6: Snapshot conventions | Establish session-end snapshot practice via SKILL.md | No — convention, not enforcement |
+| Phase 7: Source file cleanup | Correct NAS files, add anti-patterns to agent profiles | No — separate from brain API |
+
 ### Acceptance Criteria Mapping
 
 | AC | Section | How Met |
 |----|---------|---------|
 | PageIndex.ai principles mapped to brain architecture | Section 1 | 7-row mapping table with current state + application |
-| Contribution quality standard defined | Section 2 | Categories (2a), self-containment rule (2b), reference requirement (2c) |
+| Contribution quality standard defined | Section 2 | Categories incl. correction (2a), self-containment rule (2b), reference requirement (2c) |
 | State snapshot pattern defined | Section 3 | Lifecycle (3a), ownership (3b), update triggers (3c), template (3d) |
 | Decision record pattern defined | Section 4 | Structure (4a), required fields (4b), template (4c) |
-| Anti-patterns documented | Section 2d | 5 anti-patterns with examples, detection, and gates |
-| Design is implementation-ready | Section 5 | Payload schema (5a), API changes (5b-5d), migration path (Section 6) |
+| Anti-patterns documented | Section 2d | 6 anti-patterns incl. stale source contamination |
+| Knowledge evolution designed | Section 7 | Tree Problem (7a), correction category (7b), contradiction detection (7c), source contamination prevention (7d), correction lifecycle (7e), snapshots as evolution anchors (7f) |
+| Neuroimaginations-Coach case study addressed | Plan + Section 7 | Case study in Plan, Tree Problem analysis (7a), contradiction detection prevents re-contamination (7c) |
+| Design is implementation-ready | Sections 5+8 | Payload schema (5a), API changes (5b-5d), 7-phase migration path (Section 8) |
 
 ---
 
