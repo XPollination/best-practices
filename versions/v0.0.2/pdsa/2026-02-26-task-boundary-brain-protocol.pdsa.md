@@ -3,7 +3,7 @@
 **Slug:** `task-boundary-brain-protocol`
 **Date:** 2026-02-26
 **Author:** PDSA agent
-**Status:** DESIGN (Rework v5 — blocked as PAUSE+RESUME, WORKFLOW.md update)
+**Status:** DESIGN (Rework v6 — WORKFLOW.md v13 committed, blocked as PAUSE+RESUME)
 
 ---
 
