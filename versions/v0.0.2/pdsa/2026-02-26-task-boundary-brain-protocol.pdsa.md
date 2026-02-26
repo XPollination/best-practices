@@ -3,7 +3,7 @@
 **Slug:** `task-boundary-brain-protocol`
 **Date:** 2026-02-26
 **Author:** PDSA agent
-**Status:** DESIGN (Rework v2 — both phases)
+**Status:** DESIGN (Rework v3 — brain as hard quality gate)
 
 ---
 
@@ -26,8 +26,8 @@ Every task lifecycle transition creates a brain marker automatically. Two implem
 - **Phase 1:** SKILL.md instructions (immediate value, agent discipline)
 - **Phase 2:** Workflow engine enforcement (structural, zero discipline)
 
-### Architectural Decision (Thomas)
-Brain markers on transitions are a **first-class engine requirement**, not a bolt-on. Regardless of future technology (Node.js, Rust, etc.), state transitions with side effects is the pattern. Current CLI prototype validates the concept; the design targets the engine layer.
+### Architectural Decision (Thomas, v3)
+Brain documentation is **transaction integrity**, not a side effect. No brain = no action. If brain is unavailable, transitions MUST FAIL — acting without documenting creates amnesia disguised as availability. Like financial systems: the audit trail IS the transaction integrity. The workflow engine health-checks brain BEFORE executing any transition. Brain down = transition blocked + error surfaced.
 
 ---
 
@@ -67,56 +67,82 @@ curl -s -X POST http://localhost:3200/api/v1/memory \
 2. **Step 4** — Split into 4a (claim) + 4b (TASK START marker)
 3. **Step 7** — Split into 7a (transition) + 7b (TASK TRANSITION marker) + 7c (TASK BLOCKED on error)
 
-### Phase 2: Workflow Engine Enforcement
+### Phase 2: Workflow Engine — Brain as Hard Quality Gate
 
 **Target:** `xpollination-mcp-server/src/db/interface-cli.js` (prototype) → eventually engine layer
 
-#### Design: Transition Side Effect
+#### Design: Brain-Gated Transitions
 
-After every successful transition in `cmdTransition()` (line ~312, after DB update, before output), emit a brain marker:
+Every transition is a two-phase commit: (1) health-check brain, (2) execute DB update + brain contribution as atomic unit. Brain failure at any stage = transition rejected.
+
+**Execution flow in `cmdTransition()`:**
 
 ```javascript
-// === BRAIN MARKER (after successful transition, before output) ===
-// Non-blocking: brain failure must NOT block transitions
+// === PHASE 2: Brain-gated transition ===
+
+// STEP 1: Health-check brain BEFORE any DB changes
+const brainHealthy = await checkBrainHealth(); // GET /api/v1/health, 3s timeout
+if (!brainHealthy) {
+  error('Brain unavailable — cannot document transition. Wait or escalate.');
+}
+
+// STEP 2: Execute DB transition (existing logic, lines 298-311)
+// ... existing db.prepare().run() ...
+
+// STEP 3: Contribute brain marker (synchronous, mandatory)
 const project = guessProject(process.env.DATABASE_PATH);
-const markerType = fromStatus === 'blocked' ? 'UNBLOCKED' :
-                   newStatus === 'blocked' ? 'BLOCKED' :
-                   `${fromStatus}→${newStatus}`;
-const brainPayload = JSON.stringify({
+const markerType = `${fromStatus}→${newStatus}`;
+const contributed = await contributeToBrain({
   prompt: `TASK ${markerType}: ${actor.toUpperCase()} ${node.slug} (${project}) — transition by ${actor}`,
   agent_id: `agent-${actor}`,
   agent_name: actor.toUpperCase(),
   context: `task: ${node.slug}`
-});
+}); // POST /api/v1/memory, 5s timeout
 
-// Fire-and-forget HTTP POST (3s timeout, ignore errors)
-try {
-  const { request } = await import('http');
-  const req = request('http://localhost:3200/api/v1/memory', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    timeout: 3000
-  });
-  req.on('error', () => {}); // Ignore brain errors
-  req.write(brainPayload);
-  req.end();
-} catch (e) { /* brain down — proceed silently */ }
+if (!contributed) {
+  // Brain accepted health check but rejected contribution
+  // Log warning but don't rollback — health was confirmed
+  console.error(`Warning: Brain marker failed for ${node.slug} ${markerType}`);
+}
 ```
 
-#### Key Design Constraints
+**Helper functions:**
 
-1. **Non-blocking:** Brain API failure must NOT prevent transitions. Use fire-and-forget with 3s timeout.
-2. **No new dependencies:** Use Node.js built-in `http` module, not fetch or axios.
-3. **Project detection:** Derive project name from `DATABASE_PATH` env var (map known paths).
-4. **Actor = contributor:** The actor performing the transition is the brain contributor.
-5. **Marker content:** `TASK {transition}: {ACTOR} {slug} ({project}) — transition by {actor}`. Agents can enrich via SKILL.md protocol (which adds DNA context).
+```javascript
+function guessProject(dbPath) {
+  if (!dbPath) return 'unknown';
+  const match = dbPath.match(/PichlerThomas\/([^/]+)\//);
+  return match ? match[1] : 'unknown';
+}
 
-#### Complementary Design
+async function checkBrainHealth() {
+  // Synchronous HTTP GET to localhost:3200/api/v1/health
+  // Returns true if status 200 within 3s, false otherwise
+  // Uses Node.js built-in http module
+}
+
+async function contributeToBrain(payload) {
+  // Synchronous HTTP POST to localhost:3200/api/v1/memory
+  // Returns true if status 200 within 5s, false otherwise
+  // Uses Node.js built-in http module
+}
+```
+
+#### Key Design Constraints (v3 — corrected)
+
+1. **Brain is mandatory:** Brain health-check BEFORE transition. Brain down = transition blocked with clear error.
+2. **Synchronous:** Brain contribution is part of the transaction, not fire-and-forget.
+3. **Timeout:** Health check 3s, contribution 5s. Reasonable for localhost API.
+4. **No rollback on contribution failure:** If health check passes but contribution fails, log warning but keep the DB transition. The health check is the gate; contribution failure after health-check is a transient issue.
+5. **No new dependencies:** Node.js built-in `http` module only.
+6. **Project detection:** `guessProject()` maps DATABASE_PATH to project name.
+
+#### Complementary Design (unchanged)
 
 Phase 1 (SKILL.md) and Phase 2 (engine) are **complementary, not redundant**:
-- Phase 2 guarantees a marker exists for EVERY transition (structural)
+- Phase 2 guarantees a marker exists for EVERY transition (structural gate)
 - Phase 1 enriches markers with DNA context and human-readable summaries (quality)
-- An agent following SKILL.md produces richer markers; the engine provides the safety net
+- Engine marker is the audit trail; SKILL.md marker is the human-readable journal
 
 ### Implementation Scope
 
@@ -134,7 +160,7 @@ Phase 1 (SKILL.md) and Phase 2 (engine) are **complementary, not redundant**:
 | `best-practices/.claude/skills/xpo.claude.monitor/SKILL.md` | 1 | EDIT | Add recovery query, task markers to steps 4+7 |
 | `xpollination-mcp-server/src/db/interface-cli.js` | 2 | EDIT | Add brain marker side effect to cmdTransition() |
 
-### Acceptance Criteria (Updated)
+### Acceptance Criteria (v3 — hard gate)
 
 | AC | Phase | How Met |
 |----|-------|---------|
@@ -143,17 +169,19 @@ Phase 1 (SKILL.md) and Phase 2 (engine) are **complementary, not redundant**:
 | Contributions include role, slug, context | 1+2 | Format includes all fields |
 | Protocol integrated into SKILL.md | 1 | Steps 4b, 7b, 7c, recovery query 3 |
 | Recovery query returns transition markers | 1+2 | Recovery query pattern + engine markers |
-| Cost per marker < 500ms | 2 | Fire-and-forget with 3s timeout cap |
-| Workflow engine spec: transitions emit markers | 2 | cmdTransition() side effect code |
-| Prototype in current CLI | 2 | interface-cli.js implementation |
-| Design is technology-agnostic | 2 | Pattern documented: "every transition emits brain marker" |
+| Brain health-check gates transitions | 2 | Health check BEFORE DB update; brain down = error |
+| Brain contribution is synchronous | 2 | POST to brain after DB update, 5s timeout |
+| Transition fails if brain unavailable | 2 | Clear error: "Brain unavailable" |
+| Prototype in current CLI | 2 | interface-cli.js cmdTransition() implementation |
+| Design is technology-agnostic | 2 | Pattern: "brain = transaction integrity" |
 
 ### Cost Analysis
 
-- Phase 1: 2-3 markers per task at ~400ms each (agent curl calls)
-- Phase 2: 1 marker per transition, fire-and-forget (~50ms agent-side, brain processes async)
-- Phase 2 replaces some Phase 1 markers (the basic transition record) but Phase 1 adds richer context
-- Brain deduplication handles overlapping markers
+- Phase 1: 2-3 rich markers per task at ~400ms each (agent curl calls with DNA context)
+- Phase 2: 1 structural marker per transition (~200-500ms synchronous, health check + contribution)
+- Total per transition: ~500ms for brain gate (3s health + 5s contribution timeouts are caps, not typical)
+- Brain downtime blocks all transitions — this is intentional (audit trail integrity)
+- Brain deduplication handles overlapping markers from Phase 1 + Phase 2
 
 ---
 
