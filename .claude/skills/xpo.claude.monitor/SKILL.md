@@ -258,9 +258,14 @@ When Claude's context window fills up, auto-compact triggers. This is handled **
 ## Installation (new machine)
 
 ```bash
-# Skill
-mkdir -p ~/.claude/skills/xpo.claude.monitor
-cp best-practices/.claude/skills/xpo.claude.monitor/SKILL.md ~/.claude/skills/xpo.claude.monitor/SKILL.md
+# Install all skills (from best-practices repo)
+for skill in xpo.claude.monitor xpo.claude.unblock xpo.claude.mindspace.brain xpo.claude.mindspace.pm.status; do
+  mkdir -p ~/.claude/skills/$skill
+  cp best-practices/.claude/skills/$skill/SKILL.md ~/.claude/skills/$skill/SKILL.md
+done
+
+# Backward compat symlink for brain skill (allows /brain invocation)
+ln -sf xpo.claude.mindspace.brain ~/.claude/skills/brain
 
 # Auto-compact recovery hook
 cp best-practices/scripts/xpo.claude.settings.json ~/.claude/settings.json
