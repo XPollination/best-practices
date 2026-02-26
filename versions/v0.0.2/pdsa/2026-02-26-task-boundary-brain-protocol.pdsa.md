@@ -3,7 +3,7 @@
 **Slug:** `task-boundary-brain-protocol`
 **Date:** 2026-02-26
 **Author:** PDSA agent
-**Status:** DESIGN (Rework v3 — brain as hard quality gate)
+**Status:** DESIGN (Rework v4 — escalation path + viz + workflow recovery)
 
 ---
 
@@ -22,12 +22,13 @@ Agents lose context when they stop mid-task (crash, context compaction, session 
 **Evidence:** PDSA agent analyzed `cli-create-missing-parent-ids`, wrote findings to DNA, hit a workflow error (role mismatch), and stopped. On resume, brain had NO record of the in-progress work.
 
 ### Goal
-Every task lifecycle transition creates a brain marker automatically. Two implementation phases:
+Every task lifecycle transition creates a brain marker automatically. Three implementation phases:
 - **Phase 1:** SKILL.md instructions (immediate value, agent discipline)
 - **Phase 2:** Workflow engine enforcement (structural, zero discipline)
+- **Phase 3:** Escalation path, viz fix, workflow recovery for blocked state
 
 ### Architectural Decision (Thomas, v3)
-Brain documentation is **transaction integrity**, not a side effect. No brain = no action. If brain is unavailable, transitions MUST FAIL — acting without documenting creates amnesia disguised as availability. Like financial systems: the audit trail IS the transaction integrity. The workflow engine health-checks brain BEFORE executing any transition. Brain down = transition blocked + error surfaced.
+Brain documentation is **transaction integrity**, not a side effect. No brain = no action. If brain is unavailable, transitions MUST FAIL — acting without documenting creates amnesia disguised as availability. Like financial systems: the audit trail IS the transaction integrity.
 
 ---
 
@@ -100,8 +101,6 @@ const contributed = await contributeToBrain({
 }); // POST /api/v1/memory, 5s timeout
 
 if (!contributed) {
-  // Brain accepted health check but rejected contribution
-  // Log warning but don't rollback — health was confirmed
   console.error(`Warning: Brain marker failed for ${node.slug} ${markerType}`);
 }
 ```
@@ -116,72 +115,146 @@ function guessProject(dbPath) {
 }
 
 async function checkBrainHealth() {
-  // Synchronous HTTP GET to localhost:3200/api/v1/health
+  // HTTP GET to localhost:3200/api/v1/health
   // Returns true if status 200 within 3s, false otherwise
   // Uses Node.js built-in http module
 }
 
 async function contributeToBrain(payload) {
-  // Synchronous HTTP POST to localhost:3200/api/v1/memory
+  // HTTP POST to localhost:3200/api/v1/memory
   // Returns true if status 200 within 5s, false otherwise
   // Uses Node.js built-in http module
 }
 ```
 
-#### Key Design Constraints (v3 — corrected)
+#### Key Design Constraints
 
-1. **Brain is mandatory:** Brain health-check BEFORE transition. Brain down = transition blocked with clear error.
-2. **Synchronous:** Brain contribution is part of the transaction, not fire-and-forget.
-3. **Timeout:** Health check 3s, contribution 5s. Reasonable for localhost API.
-4. **No rollback on contribution failure:** If health check passes but contribution fails, log warning but keep the DB transition. The health check is the gate; contribution failure after health-check is a transient issue.
+1. **Brain is mandatory:** Health-check BEFORE transition. Brain down = error.
+2. **Synchronous:** Brain contribution is part of the transaction.
+3. **Timeout:** Health check 3s, contribution 5s.
+4. **No rollback on contribution failure:** If health passes but contribution fails, log warning. Health check is the gate.
 5. **No new dependencies:** Node.js built-in `http` module only.
-6. **Project detection:** `guessProject()` maps DATABASE_PATH to project name.
 
-#### Complementary Design (unchanged)
+### Phase 3: Escalation Path, Viz, Workflow Recovery
 
-Phase 1 (SKILL.md) and Phase 2 (engine) are **complementary, not redundant**:
-- Phase 2 guarantees a marker exists for EVERY transition (structural gate)
-- Phase 1 enriches markers with DNA context and human-readable summaries (quality)
-- Engine marker is the audit trail; SKILL.md marker is the human-readable journal
+#### 3a: Brain-Down Escalation Path
 
-### Implementation Scope
+When brain gate blocks a transition, agents must follow this escalation chain:
 
-**Phase 1 (this task):**
-- Modify: `best-practices/.claude/skills/xpo.claude.monitor/SKILL.md`
+```
+Brain health-check fails
+  → cmdTransition() returns error: "Brain unavailable — cannot document transition"
+  → Agent writes blocker to DNA: update-dna <slug> '{"brain_blocker":"Brain API down at <timestamp>"}' <actor>
+  → Agent transitions to blocked: transition <slug> blocked <actor>  ← WRONG: only liaison/system can block
+```
 
-**Phase 2 (this task):**
-- Modify: `xpollination-mcp-server/src/db/interface-cli.js` (`cmdTransition()` function)
-- Add: `guessProject()` helper function (map DATABASE_PATH to project name)
+**Issue discovered:** `any->blocked` requires `allowedActors: ['liaison', 'system']`. Agents (pdsa, dev, qa) CANNOT transition to blocked directly. The escalation needs a different approach:
 
-### Files to Create/Modify
+**Revised escalation:**
+```
+Brain health-check fails
+  → cmdTransition() returns error: "Brain unavailable"
+  → Agent writes blocker to DNA: update-dna <slug> '{"brain_blocker":"Brain API down at <timestamp>","brain_blocker_status":"waiting"}' <actor>
+  → Agent logs to /tmp/brain-outage.log: "<timestamp> <slug> <actor> brain unavailable"
+  → Agent waits 30s, retries transition (brain may recover quickly)
+  → If still down after 3 retries (90s): agent moves to next task or goes idle
+  → Monitor surfaces brain_blocker in DNA → LIAISON escalates to Thomas
+  → Thomas fixes infrastructure → agent retries transition
+```
+
+**Alternative (preferred):** Add agent actors to `any->blocked`:
+```javascript
+'any->blocked': { allowedActors: ['liaison', 'system', 'pdsa', 'dev', 'qa'] }
+```
+This allows any agent to self-block when infrastructure fails. LIAISON/system unblock.
+
+#### 3b: Blocked State Recovery Transitions
+
+**Current state:** No `blocked->active` or `blocked->ready` transitions exist. Blocked is effectively terminal.
+
+**Add to workflow-engine.js:**
+
+For task type:
+```javascript
+'blocked->ready': { allowedActors: ['liaison', 'system'], clearsDna: ['brain_blocker'] },
+'blocked->active': { allowedActors: ['liaison', 'system'], clearsDna: ['brain_blocker'] }
+```
+
+For bug type:
+```javascript
+'blocked->ready': { allowedActors: ['liaison', 'system'], clearsDna: ['brain_blocker'] },
+'blocked->active': { allowedActors: ['liaison', 'system'], clearsDna: ['brain_blocker'] }
+```
+
+**Recovery flow:**
+1. Thomas fixes brain infrastructure
+2. LIAISON transitions `blocked→ready` or `blocked→active` (restoring previous state)
+3. `clearsDna: ['brain_blocker']` removes the blocker marker
+4. Task resumes normal flow
+
+#### 3c: Visualization Fix for Blocked State
+
+**Current state analysis:**
+- Blocked box EXISTS at Y:760 with red styling (`fill: #dc2626`, `stroke: #ef4444`)
+- Blocked and cancelled share a section: `renderBlocked()` renders both
+- **Missing from legend** (lines 575-582): Legend only shows Pending, Ready, Active, Review, Done
+
+**Fix needed:**
+1. Add `Blocked` to legend with red color (#dc2626)
+2. Verify blocked tasks render correctly in their box (may already work since renderBlocked exists)
+3. Consider if blocked should appear as a separate section from cancelled (different semantics: blocked = recoverable, cancelled = terminal)
+
+**Viz changes (index.html):**
+- Add to legend: `{ label: 'Blocked', color: '#dc2626' }` (alongside existing entries)
+- Optionally split `renderBlocked()` into separate blocked and cancelled sections for visual clarity
+
+#### 3d: WORKFLOW.md Updates
+
+Add to WORKFLOW.md:
+
+```markdown
+### Blocked State
+
+Tasks can be blocked from any status when infrastructure is unavailable (e.g., brain API down).
+
+**Entry:** `any → blocked` (liaison, system, or any agent with brain-down escalation)
+**Exit:** `blocked → ready` or `blocked → active` (liaison, system only)
+**Recovery:** Thomas fixes infrastructure, LIAISON unblocks, task resumes.
+
+Brain-down escalation: When brain health-check fails during transition, agent transitions to blocked with `brain_blocker` in DNA. Monitor surfaces blocked tasks. LIAISON escalates to Thomas.
+```
+
+### Implementation Scope (All Phases)
 
 | File | Phase | Action | Description |
 |------|-------|--------|-------------|
 | `best-practices/.claude/skills/xpo.claude.monitor/SKILL.md` | 1 | EDIT | Add recovery query, task markers to steps 4+7 |
-| `xpollination-mcp-server/src/db/interface-cli.js` | 2 | EDIT | Add brain marker side effect to cmdTransition() |
+| `xpollination-mcp-server/src/db/interface-cli.js` | 2 | EDIT | Add brain gate to cmdTransition() |
+| `xpollination-mcp-server/src/db/workflow-engine.js` | 3a+3b | EDIT | Add agents to any->blocked actors, add blocked->ready/active recovery |
+| `xpollination-mcp-server/viz/index.html` | 3c | EDIT | Add Blocked to legend |
+| `xpollination-mcp-server/docs/WORKFLOW.md` | 3d | EDIT | Document blocked state, recovery, brain-down escalation |
 
-### Acceptance Criteria (v3 — hard gate)
+### Acceptance Criteria (v4 — complete)
 
 | AC | Phase | How Met |
 |----|-------|---------|
-| Protocol defined: brain marker format | 1 | 3 marker types documented in SKILL.md |
-| All roles follow protocol | 1 | Integrated into SKILL.md which all roles use |
-| Contributions include role, slug, context | 1+2 | Format includes all fields |
+| Protocol defined: brain marker format | 1 | 3 marker types in SKILL.md |
+| All roles follow protocol | 1 | Integrated into SKILL.md |
 | Protocol integrated into SKILL.md | 1 | Steps 4b, 7b, 7c, recovery query 3 |
-| Recovery query returns transition markers | 1+2 | Recovery query pattern + engine markers |
-| Brain health-check gates transitions | 2 | Health check BEFORE DB update; brain down = error |
-| Brain contribution is synchronous | 2 | POST to brain after DB update, 5s timeout |
-| Transition fails if brain unavailable | 2 | Clear error: "Brain unavailable" |
-| Prototype in current CLI | 2 | interface-cli.js cmdTransition() implementation |
-| Design is technology-agnostic | 2 | Pattern: "brain = transaction integrity" |
+| Brain health-check gates transitions | 2 | Health check BEFORE DB update |
+| Brain contribution is synchronous | 2 | POST after DB update, 5s timeout |
+| Transition fails if brain unavailable | 2 | Error: "Brain unavailable" |
+| Escalation path defined | 3a | Agent → blocked → monitor → LIAISON → Thomas |
+| Blocked→active recovery exists | 3b | blocked->ready and blocked->active transitions |
+| Blocked state visible in viz | 3c | Legend entry + verified rendering |
+| WORKFLOW.md documents blocked state | 3d | Blocked section with entry/exit/recovery |
 
 ### Cost Analysis
 
-- Phase 1: 2-3 rich markers per task at ~400ms each (agent curl calls with DNA context)
-- Phase 2: 1 structural marker per transition (~200-500ms synchronous, health check + contribution)
-- Total per transition: ~500ms for brain gate (3s health + 5s contribution timeouts are caps, not typical)
-- Brain downtime blocks all transitions — this is intentional (audit trail integrity)
-- Brain deduplication handles overlapping markers from Phase 1 + Phase 2
+- Phase 1: 2-3 rich markers per task at ~400ms each
+- Phase 2: ~200-500ms per transition (health check + contribution)
+- Brain downtime blocks transitions → agent self-blocks → LIAISON escalates
+- Recovery: Thomas fixes infra → LIAISON unblocks → agent resumes
 
 ---
 
