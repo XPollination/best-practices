@@ -41,11 +41,12 @@ function assessContributionQuality(
 
   // Keyword echo detection: >60% word overlap with recent queries
   if (recentQueries.length > 0) {
-    const promptWords = new Set(prompt.toLowerCase().split(/\s+/).filter((w) => w.length > 2));
+    const strip = (w: string) => w.replace(/[^a-z0-9-]/g, "");
+    const promptWords = new Set(prompt.toLowerCase().split(/\s+/).map(strip).filter((w) => w.length > 2));
     for (const query of recentQueries) {
-      const queryWords = new Set(query.toLowerCase().split(/\s+/).filter((w) => w.length > 2));
-      const overlap = [...promptWords].filter((w) => queryWords.has(w)).length;
-      if (promptWords.size > 0 && overlap / promptWords.size > 0.6) {
+      const queryWords = new Set(query.toLowerCase().split(/\s+/).map(strip).filter((w) => w.length > 2));
+      const overlap = [...queryWords].filter((w) => promptWords.has(w)).length;
+      if (queryWords.size > 0 && overlap / queryWords.size > 0.6) {
         flags.push("keyword_echo");
         break;
       }
@@ -189,7 +190,9 @@ async function handleMemoryRequest(params: MemoryRequest, reply: import("fastify
     const qualityAssessment = assessContributionQuality(prompt.trim(), { thought_category }, recentQueries);
     let contributionQualityFlags: string[] = [];
 
-    if (thresholdMet) {
+    const isKeywordEcho = qualityAssessment.flags.includes("keyword_echo");
+
+    if (thresholdMet && (!isKeywordEcho || isExplicitIteration)) {
       try {
         // Tag extraction (Section 3.8): match prompt against existing tags
         const existingTags = await getExistingTags();
