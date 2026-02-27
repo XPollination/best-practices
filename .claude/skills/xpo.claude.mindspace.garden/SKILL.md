@@ -53,6 +53,21 @@ After task completion, the completing agent calls with `scope=task:<slug> depth=
 
 ## Execution Steps
 
+### Step 0.5: Pre-flight Backup (deep only)
+
+If `depth=deep` (mutations will occur):
+
+1. Run the Qdrant backup script:
+   ```bash
+   bash /home/developer/workspaces/github/PichlerThomas/best-practices/scripts/qdrant-backup.sh
+   ```
+
+2. If the backup fails: **abort gardening immediately**. Do NOT proceed with mutations without a backup. Exit with error message.
+
+3. If backup succeeds: log "Brain backup created at /volume1/backups/hetzner/brain/daily/<date>" and continue.
+
+If `depth=shallow` or `depth=micro`: skip this step (no destructive operations).
+
 ### Step 1: Parse arguments
 
 Default: `scope=recent depth=shallow dry_run=false`
