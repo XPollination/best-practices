@@ -234,7 +234,7 @@ Writes tests from approved designs. Reviews dev implementations by running tests
 
 ## Reference
 
-- Workflow: `xpollination-mcp-server/versions/v0.0.1/docs/Knowledge Management (Single Source of Truth, keep up2date!)/WORKFLOW.md`
+- Workflow: `xpollination-mcp-server/tracks/process/context/WORKFLOW.md`
 - Monitor script: `xpollination-mcp-server/viz/agent-monitor.cjs`
 - Memory API: `POST http://localhost:3200/api/v1/memory`
 - Memory health: `GET http://localhost:3200/api/v1/health`
