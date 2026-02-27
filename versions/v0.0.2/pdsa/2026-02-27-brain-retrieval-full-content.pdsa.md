@@ -2,57 +2,54 @@
 
 **Date:** 2026-02-27
 **Task:** brain-retrieval-full-content
-**Status:** PLAN
+**Status:** PLAN (v2 — revised after rework)
 
 ## Plan
 
 ### Problem
-Brain API returns 80-char truncated previews (`content_preview`). Agents cannot read full thought content without direct Qdrant access. The brain-first hook (commit 2018a40) injects these truncated previews on every prompt — making knowledge injection superficial. Contribution quality improvements (commit 1e51668) are wasted if agents cannot READ full knowledge back.
+Brain API returns 80-char truncated previews (`content_preview`). Agents cannot read full thought content without direct Qdrant access. No single-thought retrieval endpoint exists. No documented deployment procedure — API was started manually and never restarted.
 
-Additionally, the running brain API (PID 3118993, tsx from source) has not been restarted since Feb 17. New features (thought categories, correction superseding, quality flags) are in source but not running.
-
-### Root Cause
-1. `content_preview` was designed as a display summary, but became the only retrieval path.
-2. No single-thought retrieval endpoint exists.
-3. No documented deployment procedure — API was started manually and never restarted.
+### Design Principle: Scan vs Drill-down
+Two retrieval modes. Hook fires on every prompt — it signals what exists (80-char preview). Agent drills down on demand (GET by ID or opt-in full_content param). This prevents context pollution: 3 full thoughts (2-6KB) injected on every prompt would waste context window on mostly irrelevant content.
 
 ## Do
 
-### Change 1: Full Content in API Sources
+### Change 1: GET /api/v1/memory/thought/:id (Drill-down)
 **File:** `api/src/routes/memory.ts`
-- Add `content` field (full text) to source objects alongside existing `content_preview`
-- Expand `content_preview` from 80 to 300 chars
-- Backward compatible — `content_preview` still exists
-
-### Change 2: Expand Highway Previews
-**File:** `api/src/services/thoughtspace.ts`
-- Expand `content_preview` in `HighwayResult` from 80 to 300 chars
-- Expand history and consolidation previews similarly
-
-### Change 3: Single Thought GET Endpoint
-**File:** `api/src/routes/memory.ts`
-- Add `GET /api/v1/memory/thought/:id`
-- Returns full thought payload: content, metadata, category, source_ref, timestamps
+- New endpoint returning full thought payload
+- Fields: content, contributor, category, topic, temporal_scope, source_ref, quality_flags, timestamps, pheromone_weight, access_count
 - Uses Qdrant `client.retrieve()`
 - 404 if not found
 
-### Change 4: Deployment Script
+### Change 2: Optional full_content parameter (Opt-in)
+**File:** `api/src/routes/memory.ts`
+- Add `full_content` boolean parameter to POST/GET `/api/v1/memory`
+- When true: sources include `content` field with full text
+- When false (default): sources have only `content_preview` (80 chars)
+- Backward compatible — default behavior unchanged
+
+### Change 3: Deployment Script
 **New file:** `scripts/deploy-brain-api.sh`
 - `git pull` in best-practices repo
-- Find and kill existing brain API process (by port 3200)
+- Find brain API by port 3200, kill
 - Restart: `nohup npx tsx api/src/index.ts > /tmp/brain-api.log 2>&1 &`
-- Wait for health check: `curl localhost:3200/api/v1/health`
+- Wait for health check
 - Print confirmation
 
-### Change 5: Deploy
-- Run deploy script to activate all changes (including contribution quality from 1e51668)
+### Change 4: Deploy
+- Run deploy script to activate all changes (contribution quality from 1e51668 + full-content retrieval)
+
+### NOT Changed
+- `content_preview` stays at 80 chars (correct for scanning)
+- Brain-first hook unchanged (signals, not dumps)
+- Highway previews stay at 80 chars
 
 ## Study
-- Verify full content appears in API responses
-- Verify GET /:id returns complete thought
+- Verify GET /:id returns complete thought content
+- Verify full_content=true returns full text in search sources
+- Verify default search still returns 80-char previews
 - Verify new fields (thought_category, quality_flags) appear after restart
-- Verify brain-first hook injects meaningful content (not truncated previews)
 
 ## Act
-- Update brain-first hook to use `content` field instead of `content_preview` if available
-- Document deployment procedure in CLAUDE.md or best-practices README
+- Document deployment procedure in operational docs
+- Consider: hook could auto-drill-down on high-score matches (>0.85) in future iteration
