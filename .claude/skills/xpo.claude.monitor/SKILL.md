@@ -17,6 +17,14 @@ Where `<role>` is: `liaison`, `pdsa`, `qa`, `dev`
 
 ---
 
+## Configuration
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `layer3_enabled` | `true` | Enable Layer 3 gardening on task completion. Set to `false` to skip this step. |
+
+---
+
 ## Step 1: Set Identity
 
 Map your role from `$ARGUMENTS`:
@@ -124,6 +132,28 @@ curl -s -X POST http://localhost:3200/api/v1/memory \
 # DATABASE_PATH=$DB node $CLI update-dna <slug> '{"blocked_reason":"Brain API unavailable"}' $ARGUMENTS
 # DATABASE_PATH=$DB node $CLI transition <slug> blocked $ARGUMENTS
 # Then contribute TASK BLOCKED marker when brain recovers.
+
+# 7d. Post-completion micro-gardening (Layer 3)
+# Only runs when: (1) layer3_enabled is true AND (2) the completion transition succeeded
+# (i.e., next-state is "complete" or equivalent complete transition).
+# This is a best-effort step — gardener failure does not block task completion.
+# The transition in 7a is already done; this is cleanup.
+#
+# If layer3_enabled is false, skip this step entirely.
+#
+# When enabled on a complete transition, call the gardener engine skill
+# with scope=task:<slug> and depth=micro:
+#
+# /xpo.claude.mindspace.garden task:<slug> micro
+#
+# The micro-gardening pass:
+# - Consolidates scattered task-related thoughts into a summary learning
+# - Archives intermediate entries (TASK START transition markers, status updates)
+# - Creates ONE consolidation thought summarizing what the task learned
+# - Does NOT do cross-domain work or highway curation (that's deep depth)
+#
+# If the gardener fails (brain down, timeout, error), log the error and continue.
+# The task is already complete — gardening is optional cleanup.
 
 # 8. Contribute key learnings to memory
 curl -s -X POST http://localhost:3200/api/v1/memory \
