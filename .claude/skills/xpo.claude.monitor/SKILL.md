@@ -53,6 +53,11 @@ curl -s -X POST http://localhost:3200/api/v1/memory \
 curl -s -X POST http://localhost:3200/api/v1/memory \
   -H "Content-Type: application/json" \
   -d "{\"prompt\": \"Current task state, recent decisions, and in-flight work across all projects\", \"agent_id\": \"agent-$ARGUMENTS\", \"agent_name\": \"$(echo $ARGUMENTS | tr a-z A-Z)\", \"session_id\": \"$SESSION_ID\"}"
+
+# Query 3: In-flight task recovery (transition markers)
+curl -s -X POST http://localhost:3200/api/v1/memory \
+  -H "Content-Type: application/json" \
+  -d "{\"prompt\": \"TASK START or TASK BLOCKED markers for $(echo $ARGUMENTS | tr a-z A-Z) agent — any interrupted or in-progress tasks\", \"agent_id\": \"agent-$ARGUMENTS\", \"agent_name\": \"$(echo $ARGUMENTS | tr a-z A-Z)\", \"session_id\": \"$SESSION_ID\"}"
 ```
 
 **Read the results.** Memory returns `result.sources` (knowledge) and `result.highways_nearby` (most-trafficked paths). Use these to understand your situation.
@@ -94,16 +99,31 @@ DATABASE_PATH=$DB node $CLI get <slug>
 #    Examples: pdsa_review exists but task still at review+pdsa → execute review->review:pdsa
 #              findings exists but task still at active+pdsa → execute transition to approval
 
-# 4. Claim it (only if not already active/review with your work)
+# 4a. Claim it (only if not already active/review with your work)
 DATABASE_PATH=$DB node $CLI transition <slug> active $ARGUMENTS
+
+# 4b. TASK START brain marker
+curl -s -X POST http://localhost:3200/api/v1/memory \
+  -H "Content-Type: application/json" \
+  -d "{\"prompt\": \"TASK START: $(echo $ARGUMENTS | tr a-z A-Z) claiming <slug> (<project>) — <DNA title>\", \"agent_id\": \"agent-$ARGUMENTS\", \"agent_name\": \"$(echo $ARGUMENTS | tr a-z A-Z)\", \"session_id\": \"$SESSION_ID\", \"context\": \"task: <slug>\", \"thought_category\": \"transition_marker\", \"topic\": \"<slug>\"}"
 
 # 5. Do the work described in DNA
 
 # 6. Write results back to DNA
 DATABASE_PATH=$DB node $CLI update-dna <slug> '{"findings":"..."}' $ARGUMENTS
 
-# 7. Transition forward — THIS IS MANDATORY, work is NOT done without it
+# 7a. Transition forward — THIS IS MANDATORY, work is NOT done without it
 DATABASE_PATH=$DB node $CLI transition <slug> <next-state> $ARGUMENTS
+
+# 7b. TASK TRANSITION brain marker (auto-emitted by CLI brain gate, but contribute if manual)
+curl -s -X POST http://localhost:3200/api/v1/memory \
+  -H "Content-Type: application/json" \
+  -d "{\"prompt\": \"TASK active→<next-state>: $(echo $ARGUMENTS | tr a-z A-Z) <slug> (<project>) — <outcome, 1 sentence>\", \"agent_id\": \"agent-$ARGUMENTS\", \"agent_name\": \"$(echo $ARGUMENTS | tr a-z A-Z)\", \"session_id\": \"$SESSION_ID\", \"context\": \"task: <slug>\", \"thought_category\": \"transition_marker\", \"topic\": \"<slug>\"}"
+
+# 7c. If transition fails (brain down, DB error), BLOCK the task:
+# DATABASE_PATH=$DB node $CLI update-dna <slug> '{"blocked_reason":"Brain API unavailable"}' $ARGUMENTS
+# DATABASE_PATH=$DB node $CLI transition <slug> blocked $ARGUMENTS
+# Then contribute TASK BLOCKED marker when brain recovers.
 
 # 8. Contribute key learnings to memory
 curl -s -X POST http://localhost:3200/api/v1/memory \
