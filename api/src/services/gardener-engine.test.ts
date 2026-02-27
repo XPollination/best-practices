@@ -18,6 +18,8 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import { readFileSync, existsSync } from "fs";
 import { resolve } from "path";
+import { QdrantClient } from "@qdrant/js-client-rest";
+import { think } from "./thoughtspace.js";
 
 const SKILL_PATH = resolve(
   __dirname,
@@ -179,34 +181,26 @@ describe("API: consolidate operation (gardener merges related thoughts)", () => 
   let thoughtIds: string[] = [];
 
   beforeAll(async () => {
-    // Create 2 related thoughts to consolidate
-    for (const content of [
-      "Gardener consolidation test thought A — knowledge management systems require periodic pruning to maintain relevance and signal-to-noise ratio.",
-      "Gardener consolidation test thought B — knowledge bases degrade without maintenance; periodic consolidation reduces redundancy and improves retrieval quality.",
-    ]) {
-      await postMemory({
-        prompt: content,
-        agent_id: TEST_AGENT_ID,
-        agent_name: TEST_AGENT_NAME,
-      });
-    }
-
-    // Retrieve both
-    const res = await postMemory({
-      prompt: "gardener consolidation test knowledge management pruning maintenance",
-      agent_id: TEST_AGENT_ID,
-      agent_name: TEST_AGENT_NAME,
-      full_content: true,
-    });
-    const body = (await res.json()) as Record<string, unknown>;
-    const result = body.result as Record<string, unknown>;
-    const sources = result.sources as Array<Record<string, unknown>>;
-    if (sources) {
-      thoughtIds = sources
-        .filter((s) => ((s.content || s.content_preview) as string)?.includes("Gardener consolidation test"))
-        .map((s) => s.thought_id as string)
-        .slice(0, 2);
-    }
+    // Create 2 thoughts directly via think() for reliable IDs
+    const [a, b] = await Promise.all([
+      think({
+        content: "Gardener consolidation test thought A — knowledge management systems require periodic pruning to maintain relevance and signal-to-noise ratio.",
+        contributor_id: TEST_AGENT_ID,
+        contributor_name: TEST_AGENT_NAME,
+        thought_type: "original",
+        source_ids: [],
+        tags: ["gardener-test"],
+      }),
+      think({
+        content: "Gardener consolidation test thought B — knowledge bases degrade without maintenance; periodic consolidation reduces redundancy and improves retrieval quality.",
+        contributor_id: TEST_AGENT_ID,
+        contributor_name: TEST_AGENT_NAME,
+        thought_type: "original",
+        source_ids: [],
+        tags: ["gardener-test"],
+      }),
+    ]);
+    thoughtIds = [a.thought_id, b.thought_id];
   });
 
   it("consolidate merges two thoughts into one", async () => {
