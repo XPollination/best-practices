@@ -2,129 +2,200 @@
 
 **Task:** gardener-v003-layer3-skipped
 **Date:** 2026-02-27
-**Status:** Design (rework v2)
-
-## Plan
-
-Move ALL mandatory gardening steps from agent skill instructions to toolchain automation. Agents skip optional skill steps under task flow momentum. The fix is systemic: **if a step must always run, implement it in a tool/script, not as an agent instruction.**
-
-Two affected layers:
-- **Layer 3** (task completion micro-gardening): Move to `interface-cli.js` transition handler
-- **Layer 1** (PM status brain health): Move to `pm-status.cjs` script
-
-## Root Cause (Systemic)
-
-The pattern: any skill step marked optional/conditional/best-effort gets skipped by agents under task flow momentum.
-
-**Evidence:**
-- Layer 3: 3/3 task completions in session 2026-02-27 skipped step 7d (micro-gardening)
-- Layer 1: 3/4 PM status calls in same session skipped step 1.5 (brain health diagnostic)
-
-**Root cause:** Skills are instructions. Agents execute core steps reliably but drop post-steps. The more "optional" a step reads, the more likely it's skipped. This is not an agent defect — it's a design gap. Enforcement belongs in toolchain.
+**Status:** Design (rework v3 — more specific)
 
 ## Systemic Principle
 
-```
-AGENT INSTRUCTION (skill step)  →  May be skipped  →  Use for guidance only
-TOOLCHAIN AUTOMATION (CLI/script) →  Always runs     →  Use for mandatory steps
-```
+Agent instructions (skill steps) may be skipped under task flow momentum. Toolchain automation (CLI/scripts) always runs. Mandatory gardening belongs in toolchain.
 
-Any mandatory gardening operation must be embedded in the tool the agent calls, not in the skill that tells the agent what to do.
+## Change 1: Layer 3 — `microGarden()` in interface-cli.js
 
-## Design: Two Changes
+**File:** `xpollination-mcp-server/src/db/interface-cli.js` (19.5KB, latest commit 41a3712)
+**Repo:** xpollination-mcp-server
+**Cross-repo note:** CLI calls brain API directly (HTTP POST), not gardener skill. The CLI already does this for transition markers (line 277-301).
 
-### Change 1: Layer 3 — CLI `microGarden()` on complete transition
+### Insertion point
 
-**File:** `xpollination-mcp-server/src/db/interface-cli.js`
-
-After successful `complete` transition (line ~491), before output:
+After the existing brain marker (line 491) and notification hook (line 505), BEFORE `output(result)` on line 507:
 
 ```javascript
-if (newStatus === 'complete') {
-  const gardenResult = await microGarden(node.slug, actor, project, updatedDna);
-  if (gardenResult) result.gardening = gardenResult;
+  // Line 505: } (end of approval notification block)
+
+  // NEW: Auto micro-garden on complete transition
+  if (newStatus === 'complete') {
+    const gardenResult = await microGarden(node.slug, project, updatedDna);
+    if (gardenResult) result.gardening = gardenResult;
+  }
+
+  output(result);  // Line 507 (existing)
+  db.close();      // Line 508 (existing)
+```
+
+### New function: `microGarden(slug, project, dna)`
+
+Place after `contributeToBrain()` (line 302), before `cmdTransition()` (line 304):
+
+```javascript
+async function microGarden(slug, project, dna, timeoutMs = 5000) {
+  // Step 1: Build consolidation summary from DNA (no brain query needed)
+  const title = dna.title || slug;
+  const findings = dna.findings
+    ? (typeof dna.findings === 'string' ? dna.findings : JSON.stringify(dna.findings)).substring(0, 200)
+    : 'N/A';
+  const impl = dna.implementation?.summary || dna.implementation?.commit || 'N/A';
+  const pdsaVerdict = dna.pdsa_review?.verdict || 'N/A';
+  const qaVerdict = dna.qa_review?.verdict || 'N/A';
+
+  const summary = `TASK SUMMARY: ${title} (${project}). ` +
+    `Findings: ${findings}. ` +
+    `Implementation: ${impl}. ` +
+    `Reviews: PDSA=${pdsaVerdict}, QA=${qaVerdict}.`;
+
+  // Step 2: Contribute consolidation thought via brain API
+  return new Promise((resolve) => {
+    const data = JSON.stringify({
+      prompt: summary,
+      agent_id: 'system',
+      agent_name: 'GARDENER',
+      context: `auto-garden on complete: ${slug}`,
+      thought_category: 'task_summary',
+      topic: slug
+    });
+    const req = http.request('http://localhost:3200/api/v1/memory', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data) },
+      timeout: timeoutMs
+    }, (res) => {
+      let body = '';
+      res.on('data', (chunk) => body += chunk);
+      res.on('end', () => {
+        resolve({ status: 'ok', summary_contributed: true });
+      });
+    });
+    req.on('error', () => resolve({ status: 'skipped', reason: 'brain error' }));
+    req.on('timeout', () => { req.destroy(); resolve({ status: 'skipped', reason: 'timeout' }); });
+    req.write(data);
+    req.end();
+  });
 }
 ```
 
-`microGarden(slug, actor, project, dna)`:
-1. Query brain for task thoughts: `POST /api/v1/memory { prompt: "task: <slug>", read_only: true, full_content: true }`
-2. Build consolidation summary from DNA fields (title, findings, implementation, reviews)
-3. Contribute consolidation: `POST /api/v1/memory { prompt: <summary>, agent_name: "GARDENER", thought_category: "task_summary", topic: <slug> }`
-4. Return `{ status: "ok" }` or `{ status: "skipped", reason: "..." }`
+### What it does, step by step
 
-**Output:** New `gardening` field in transition result (additive, backward compatible).
-**Failure mode:** If brain is down, gardening is skipped. Transition already succeeded.
-**Estimate:** ~40 lines added to interface-cli.js.
+1. Extracts DNA fields: `title`, `findings`, `implementation.summary`, `pdsa_review.verdict`, `qa_review.verdict`
+2. Builds a one-line consolidation summary (no brain query needed — DNA has all info)
+3. POSTs to `http://localhost:3200/api/v1/memory` with `agent_name: "GARDENER"`, `thought_category: "task_summary"`, `topic: <slug>`
+4. Returns `{ status: "ok", summary_contributed: true }` or `{ status: "skipped", reason: "..." }`
+5. Failure does NOT block the transition (result already committed to DB on line 456-467)
 
-### Change 2: Layer 1 — Brain health integrated into PM status script
+### Output format
 
-**File:** `xpollination-mcp-server/viz/pm-status.cjs` (NEW)
-
-Create a script that does the full PM status scan INCLUDING brain health:
-
-```javascript
-// pm-status.cjs — single script for PM status
-// 1. Brain context query (Step 0)
-// 2. Scan all project DBs for non-terminal tasks (Step 1)
-// 3. Brain health diagnostic (Step 1.5) — ALWAYS runs, not optional
-// 4. Output structured JSON with tasks + brain health
-```
-
-The PM status skill (SKILL.md) changes from:
-```
-Step 1: Run CLI list per project  ←  agent runs 3 commands
-Step 1.5: Run gardener shallow    ←  agent runs 1 command (SKIPPED)
-```
-To:
-```
-Step 1: Run pm-status.cjs         ←  agent runs 1 command (brain health included)
-```
-
-The script outputs JSON:
 ```json
 {
-  "timestamp": "...",
-  "projects": {
-    "best-practices": { "tasks": [...] },
-    "xpollination-mcp-server": { "tasks": [...] },
-    "HomePage": { "tasks": [...] }
-  },
-  "brain_health": {
-    "status": "healthy|attention|degraded",
-    "recent_thoughts": 15,
-    "noise_flagged": 2,
-    "active_domains": ["gardener", "workflow"],
-    "duplicates": 0
-  }
+  "success": true,
+  "slug": "my-task",
+  "transition": "review->complete",
+  "actor": "liaison",
+  "gardening": { "status": "ok", "summary_contributed": true }
 }
 ```
 
-The agent reads the JSON and presents it. Brain health is baked in — cannot be skipped.
+### Why no brain query step?
 
-**Estimate:** ~80 lines new script. ~10 lines skill update.
+The DNA already contains everything needed for the summary. Querying brain for task-related thoughts would add latency and complexity with no value — the CLI has the DNA in memory. The consolidation thought summarizes DNA, not brain state.
 
-### SKILL.md updates
+## Change 2: Layer 1 — Brain health in PM status script
 
-Both the monitor skill (step 7d) and PM status skill (step 1.5) get updated:
-- **Monitor step 7d:** Remove or mark as "handled automatically by CLI". Keep for reference.
-- **PM status step 1.5:** Remove as separate step. Brain health is now in the script output.
+**File:** `xpollination-mcp-server/viz/pm-status.cjs` (NEW file)
+**Repo:** xpollination-mcp-server (alongside existing `agent-monitor.cjs`)
+**Invocation:** `node viz/pm-status.cjs` (replaces 4 separate CLI commands in PM status skill)
+
+### What the script does
+
+```javascript
+#!/usr/bin/env node
+// pm-status.cjs — single-command PM status with integrated brain health
+
+const http = require('http');
+const { execSync } = require('child_process');
+
+const CLI = '/home/developer/workspaces/github/PichlerThomas/xpollination-mcp-server/src/db/interface-cli.js';
+const DBS = {
+  'best-practices': '/home/developer/workspaces/github/PichlerThomas/best-practices/data/xpollination.db',
+  'xpollination-mcp-server': '/home/developer/workspaces/github/PichlerThomas/xpollination-mcp-server/data/xpollination.db',
+  'HomePage': '/home/developer/workspaces/github/PichlerThomas/HomePage/data/xpollination.db'
+};
+
+async function main() {
+  const result = { timestamp: new Date().toISOString(), projects: {}, brain_health: null };
+
+  // 1. Scan all project DBs
+  for (const [name, dbPath] of Object.entries(DBS)) {
+    try {
+      const out = execSync(`DATABASE_PATH="${dbPath}" node ${CLI} list`, { encoding: 'utf8' });
+      result.projects[name] = JSON.parse(out);
+    } catch { result.projects[name] = { error: 'scan failed' }; }
+  }
+
+  // 2. Brain health diagnostic (ALWAYS runs — not optional)
+  try {
+    const health = await brainHealthCheck();
+    result.brain_health = health;
+  } catch { result.brain_health = { status: 'unavailable' }; }
+
+  console.log(JSON.stringify(result, null, 2));
+}
+
+async function brainHealthCheck() {
+  // Query brain for recent activity (read_only to avoid pollution)
+  const data = JSON.stringify({
+    prompt: 'Recent brain activity: new thoughts, noise, active domains',
+    agent_id: 'system',
+    agent_name: 'PM-STATUS',
+    read_only: true,
+    full_content: true
+  });
+  // POST to brain API, parse response for health metrics
+  // Count sources, check for duplicates, flag noise
+  // Return { status, recent_thoughts, noise_flagged, active_domains, duplicates }
+}
+```
+
+### PM status SKILL.md update
+
+Current skill Steps 1 + 1.5 (4 commands, Layer 1 optional) become:
+
+```
+Step 1: Run pm-status.cjs
+  node /home/developer/.../xpollination-mcp-server/viz/pm-status.cjs
+
+This outputs JSON with all project tasks AND brain health. Parse and present.
+```
+
+The agent runs ONE command. Brain health is baked into the output. Cannot be skipped.
+
+### How LIAISON invokes it
+
+The PM status skill (SKILL.md) tells the agent to run `node viz/pm-status.cjs` instead of running 3 separate `node $CLI list` commands + `/xpo.claude.mindspace.garden recent shallow`. The agent gets structured JSON back and presents it to Thomas. Same UX, fewer commands, brain health guaranteed.
 
 ## Backward Compatibility
 
-- Layer 3: New `gardening` field in CLI output — additive. Old CLIs still work.
-- Layer 1: pm-status.cjs is new. Old PM status skill still works (just without guaranteed brain health). Skill update points to new script.
-- Skills remain operational without the scripts — they just lose the automated steps.
+- **Layer 3:** New `gardening` field in CLI transition output. Additive only. Old CLIs without `microGarden()` still work — no gardening, no field.
+- **Layer 1:** New `pm-status.cjs` script. Old PM status skill still works (just without guaranteed brain health). Skill update optional.
+- **Skills:** Step 7d in monitor skill and Step 1.5 in PM status skill can be kept for documentation/manual runs, marked as "automated by toolchain."
 
-## Scope
+## Estimate
 
-This task covers Layer 3 (CLI change) and Layer 1 (pm-status.cjs). The systemic principle is documented here for future gardening layers.
+- **Layer 3:** ~40 lines added to interface-cli.js (one function + one if-block)
+- **Layer 1:** ~80 lines new pm-status.cjs script + ~10 lines skill update
+- **Total:** ~130 lines across 3 files
 
-Marker archiving (consolidating old transition markers) deferred to v0.0.4.
+## Files Modified
 
-## Study (Post-Implementation)
+1. `xpollination-mcp-server/src/db/interface-cli.js` — add `microGarden()` function + call on complete
+2. `xpollination-mcp-server/viz/pm-status.cjs` — new file, PM status with brain health
+3. `best-practices/.claude/skills/xpo.claude.mindspace.pm.status/SKILL.md` — update Steps 1/1.5 to use pm-status.cjs
+
+## Study / Act
 
 To be filled after dev implements and QA tests.
-
-## Act
-
-To be filled after study.
