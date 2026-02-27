@@ -278,15 +278,19 @@ When Claude's context window fills up, auto-compact triggers. This is handled **
 ## Installation (new machine)
 
 ```bash
-# Install all skills (from best-practices repo)
+# Install all skills (symlinks — auto-update on git pull)
 for skill in xpo.claude.monitor xpo.claude.unblock xpo.claude.mindspace.brain xpo.claude.mindspace.pm.status; do
-  mkdir -p ~/.claude/skills/$skill
-  cp best-practices/.claude/skills/$skill/SKILL.md ~/.claude/skills/$skill/SKILL.md
+  ln -sfn /home/developer/workspaces/github/PichlerThomas/best-practices/.claude/skills/$skill ~/.claude/skills/$skill
 done
 
 # Backward compat symlink for brain skill (allows /brain invocation)
-ln -sf xpo.claude.mindspace.brain ~/.claude/skills/brain
+ln -sfn xpo.claude.mindspace.brain ~/.claude/skills/brain
 
-# Auto-compact recovery hook
-cp best-practices/scripts/xpo.claude.settings.json ~/.claude/settings.json
+# Merge hook config (preserves local settings, adds missing hooks)
+node best-practices/scripts/xpo.claude.sync-settings.js \
+  best-practices/scripts/xpo.claude.settings.json \
+  ~/.claude/settings.json
 ```
+
+**Auto-deploy:** `claude-session.sh` runs `sync_skills()` + `sync_settings()` on every session
+creation — skills and hooks auto-deploy from git source. No manual install needed after first setup.
