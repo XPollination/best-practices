@@ -95,13 +95,14 @@ interface MemoryRequest {
   supersedes?: string[];
   // Retrieval options
   full_content?: boolean;
+  read_only?: boolean;
 }
 
 async function handleMemoryRequest(params: MemoryRequest, reply: import("fastify").FastifyReply) {
   const {
     prompt, agent_id, agent_name, context, session_id, refines, consolidates,
     thought_category, topic, temporal_scope, source_ref, alternatives_considered,
-    corrected_fact, correct_fact, supersedes, full_content,
+    corrected_fact, correct_fact, supersedes, full_content, read_only,
   } = params;
 
     // Step 1: Validate request (Section 3.3)
@@ -181,9 +182,10 @@ async function handleMemoryRequest(params: MemoryRequest, reply: import("fastify
     let contributedThoughtId: string | undefined;
 
     // Step 3: Check contribution threshold (Section 3.5)
+    // Skip contribution entirely when read_only is true (prevents query pollution)
     // Bypass threshold when refines or consolidates is provided (explicit iteration)
     const isExplicitIteration = !!(refines || consolidates);
-    const thresholdMet = isExplicitIteration || meetsContributionThreshold(prompt.trim());
+    const thresholdMet = !read_only && (isExplicitIteration || meetsContributionThreshold(prompt.trim()));
 
     // Quality assessment
     const recentQueries = getRecentQueriesByAgent(agent_id, 5);

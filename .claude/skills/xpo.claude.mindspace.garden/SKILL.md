@@ -108,7 +108,7 @@ If unhealthy, abort with error message.
 Query brain for recent activity across common domains:
 
 ```bash
-# Query recent thoughts with full content
+# Query recent thoughts with full content (read_only prevents query pollution)
 curl -s -X POST "$BRAIN_URL" \
   -H "Content-Type: application/json" \
   -d "{
@@ -116,7 +116,8 @@ curl -s -X POST "$BRAIN_URL" \
     \"agent_id\": \"$AGENT_ID\",
     \"agent_name\": \"$AGENT_NAME\",
     \"session_id\": \"$SESSION_ID\",
-    \"full_content\": true
+    \"full_content\": true,
+    \"read_only\": true
   }"
 ```
 
@@ -133,7 +134,8 @@ curl -s -X POST "$BRAIN_URL" \
     \"agent_id\": \"$AGENT_ID\",
     \"agent_name\": \"$AGENT_NAME\",
     \"session_id\": \"$SESSION_ID\",
-    \"full_content\": true
+    \"full_content\": true,
+    \"read_only\": true
   }"
 ```
 
@@ -157,7 +159,8 @@ for DOMAIN in \
       \"agent_id\": \"$AGENT_ID\",
       \"agent_name\": \"$AGENT_NAME\",
       \"session_id\": \"$SESSION_ID\",
-      \"full_content\": true
+      \"full_content\": true,
+      \"read_only\": true
     }"
 done
 ```
