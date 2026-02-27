@@ -8,10 +8,11 @@ const AGENT_ID = "thomas";
 const AGENT_NAME = "Thomas Pichler";
 const MCP_PORT = 3201;
 
-async function callBrain(prompt: string, context?: string, session_id?: string): Promise<unknown> {
-  const body: Record<string, string> = { prompt, agent_id: AGENT_ID, agent_name: AGENT_NAME };
+async function callBrain(prompt: string, context?: string, session_id?: string, full_content?: boolean): Promise<unknown> {
+  const body: Record<string, unknown> = { prompt, agent_id: AGENT_ID, agent_name: AGENT_NAME };
   if (context) body.context = context;
   if (session_id) body.session_id = session_id;
+  if (full_content) body.full_content = true;
 
   const res = await fetch(BRAIN_API, {
     method: "POST",
@@ -19,6 +20,15 @@ async function callBrain(prompt: string, context?: string, session_id?: string):
     body: JSON.stringify(body),
   });
 
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Brain API error ${res.status}: ${err}`);
+  }
+  return res.json();
+}
+
+async function getThought(thought_id: string): Promise<unknown> {
+  const res = await fetch(`${BRAIN_API}/thought/${thought_id}`);
   if (!res.ok) {
     const err = await res.text();
     throw new Error(`Brain API error ${res.status}: ${err}`);
@@ -39,9 +49,10 @@ function createMcpServer(): McpServer {
       prompt: z.string().describe("Natural language question or topic to search"),
       context: z.string().optional().describe("What you are currently working on — changes retrieval direction"),
       session_id: z.string().optional().describe("Reuse from previous call for conversation continuity"),
+      include_full_content: z.boolean().optional().describe("When true, sources include full content instead of 80-char preview"),
     },
-    async ({ prompt, context, session_id }) => {
-      const data = await callBrain(prompt, context, session_id) as Record<string, unknown>;
+    async ({ prompt, context, session_id, include_full_content }) => {
+      const data = await callBrain(prompt, context, session_id, include_full_content ?? undefined) as Record<string, unknown>;
       return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
     }
   );
@@ -62,6 +73,23 @@ function createMcpServer(): McpServer {
         ? "Thought stored successfully."
         : "Not stored (too short or interrogative). Still retrieved related thoughts:";
       return { content: [{ type: "text" as const, text: `${prefix}\n\n${JSON.stringify(data, null, 2)}` }] };
+    }
+  );
+
+  mcp.tool(
+    "drill_down_thought",
+    "Retrieve the full content of a specific thought by its ID. Use after query_brain to read complete thoughts beyond the 80-char preview.",
+    {
+      thought_id: z.string().describe("The thought_id to retrieve"),
+    },
+    async ({ thought_id }) => {
+      try {
+        const data = await getThought(thought_id);
+        return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return { content: [{ type: "text" as const, text: `Error: ${message}` }], isError: true };
+      }
     }
   );
 
