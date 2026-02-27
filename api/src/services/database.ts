@@ -77,6 +77,14 @@ export function getAgentQueryCount(agentId: string): number {
   return row.cnt;
 }
 
+export function getRecentQueriesByAgent(agentId: string, limit: number = 5): string[] {
+  const db = getDb();
+  const rows = db.prepare(
+    "SELECT query_text FROM query_log WHERE agent_id = ? AND query_text != '' ORDER BY timestamp DESC LIMIT ?"
+  ).all(agentId, limit) as Array<{ query_text: string }>;
+  return rows.map((r) => r.query_text);
+}
+
 export function getSessionReturnedIds(sessionId: string): string[] {
   const db = getDb();
   const rows = db.prepare("SELECT returned_ids FROM query_log WHERE session_id = ? ORDER BY timestamp DESC").all(sessionId) as Array<{ returned_ids: string }>;

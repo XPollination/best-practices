@@ -27,6 +27,9 @@ export async function ensureThoughtSpace(): Promise<void> {
       "thought_type",
       "tags",
       "knowledge_space_id",
+      "thought_category",
+      "topic",
+      "quality_flags",
     ];
     const integerIndexes = ["access_count"];
     const floatIndexes = ["pheromone_weight"];
@@ -61,11 +64,33 @@ export async function ensureThoughtSpace(): Promise<void> {
       });
     }
 
-    console.log("Created 8 payload indexes on thought_space");
+    console.log("Created payload indexes on thought_space");
+  } else {
+    // Ensure new indexes exist on existing collection (backward-compatible migration)
+    const newKeywordIndexes = ["thought_category", "topic", "quality_flags"];
+    for (const field of newKeywordIndexes) {
+      try {
+        await client.createPayloadIndex(COLLECTION, {
+          field_name: field,
+          field_schema: "keyword",
+          wait: true,
+        });
+      } catch {
+        // Index may already exist, ignore
+      }
+    }
   }
 }
 
 // --- Types ---
+
+export type ThoughtCategory = "state_snapshot" | "decision_record" | "operational_learning" | "task_outcome" | "correction" | "uncategorized";
+
+export interface SourceRef {
+  type: "task" | "file" | "commit" | "url";
+  value: string;
+  project?: string;
+}
 
 export interface ThinkParams {
   content: string;
@@ -75,11 +100,23 @@ export interface ThinkParams {
   source_ids: string[];
   tags: string[];
   context_metadata?: string;
+  // Brain contribution quality fields (all optional, backward compatible)
+  thought_category?: ThoughtCategory;
+  topic?: string;
+  temporal_scope?: string;
+  source_ref?: SourceRef;
+  alternatives_considered?: string;
+  quality_flags?: string[];
+  // Correction-specific fields
+  corrected_fact?: string;
+  correct_fact?: string;
+  supersedes?: string[];
 }
 
 export interface ThinkResult {
   thought_id: string;
   pheromone_weight: number;
+  quality_flags?: string[];
 }
 
 export interface RetrieveParams {
@@ -88,6 +125,9 @@ export interface RetrieveParams {
   session_id: string;
   limit?: number;
   filter_tags?: string[];
+  query_text?: string;
+  filter_topic?: string;
+  filter_category?: ThoughtCategory;
 }
 
 export interface RetrieveResult {
@@ -99,6 +139,11 @@ export interface RetrieveResult {
   tags: string[];
   refined_by?: string;
   superseded?: boolean;
+  // Brain contribution quality fields
+  thought_category?: ThoughtCategory;
+  topic?: string;
+  temporal_scope?: string;
+  quality_flags?: string[];
 }
 
 export interface LineageResult {
@@ -175,7 +220,7 @@ export async function think(params: ThinkParams): Promise<ThinkResult> {
     }
   }
 
-  const payload = {
+  const payload: Record<string, unknown> = {
     contributor_id: params.contributor_id,
     contributor_name: params.contributor_name,
     content: params.content,
@@ -191,6 +236,17 @@ export async function think(params: ThinkParams): Promise<ThinkResult> {
     co_retrieved_with: [],
     pheromone_weight: initialWeight,
     knowledge_space_id: "ks-default",
+    // Brain contribution quality fields
+    thought_category: params.thought_category ?? "uncategorized",
+    topic: params.topic ?? null,
+    temporal_scope: params.temporal_scope ?? null,
+    source_ref: params.source_ref ?? null,
+    alternatives_considered: params.alternatives_considered ?? null,
+    quality_flags: params.quality_flags ?? [],
+    // Correction-specific fields
+    corrected_fact: params.corrected_fact ?? null,
+    correct_fact: params.correct_fact ?? null,
+    superseded_by_correction: false,
   };
 
   try {
@@ -202,7 +258,22 @@ export async function think(params: ThinkParams): Promise<ThinkResult> {
     throw new ThoughtError("QDRANT_ERROR", `Qdrant upsert failed: ${err}`);
   }
 
-  return { thought_id: thoughtId, pheromone_weight: initialWeight };
+  // Correction category: mark superseded thoughts with hard penalty flag
+  if (params.thought_category === "correction" && params.supersedes && params.supersedes.length > 0) {
+    for (const supersededId of params.supersedes) {
+      try {
+        await client.setPayload(COLLECTION, {
+          points: [supersededId],
+          payload: { superseded_by_correction: true },
+          wait: true,
+        });
+      } catch (err) {
+        console.error(`Failed to mark thought ${supersededId} as superseded by correction:`, err);
+      }
+    }
+  }
+
+  return { thought_id: thoughtId, pheromone_weight: initialWeight, quality_flags: params.quality_flags };
 }
 
 // --- retrieve() — Section 4.2 (Phase 2: full access tracking + pheromone) ---
@@ -212,18 +283,18 @@ export async function retrieve(params: RetrieveParams): Promise<RetrieveResult[]
   const sessionId = params.session_id || crypto.randomUUID();
   const now = new Date().toISOString();
 
-  // Build filter if filter_tags provided
-  let filter: Record<string, unknown> | undefined;
+  // Build filter combining tags, topic, and category
+  const filterConditions: Record<string, unknown>[] = [];
   if (params.filter_tags && params.filter_tags.length > 0) {
-    filter = {
-      must: [
-        {
-          key: "tags",
-          match: { any: params.filter_tags },
-        },
-      ],
-    };
+    filterConditions.push({ key: "tags", match: { any: params.filter_tags } });
   }
+  if (params.filter_topic) {
+    filterConditions.push({ key: "topic", match: { value: params.filter_topic } });
+  }
+  if (params.filter_category) {
+    filterConditions.push({ key: "thought_category", match: { value: params.filter_category } });
+  }
+  const filter = filterConditions.length > 0 ? { must: filterConditions } : undefined;
 
   let results;
   try {
@@ -313,6 +384,10 @@ export async function retrieve(params: RetrieveParams): Promise<RetrieveResult[]
       score: r.score,
       pheromone_weight: Math.min(10.0, oldWeight + 0.05),
       tags: (p.tags as string[]) ?? [],
+      thought_category: (p.thought_category as ThoughtCategory) ?? "uncategorized",
+      topic: (p.topic as string) ?? undefined,
+      temporal_scope: (p.temporal_scope as string) ?? undefined,
+      quality_flags: (p.quality_flags as string[]) ?? [],
     };
   });
 
@@ -335,11 +410,29 @@ export async function retrieve(params: RetrieveParams): Promise<RetrieveResult[]
   // Score adjustments
   for (const m of mapped) {
     if (m.superseded) {
-      m.score *= 0.7; // 30% penalty for superseded
+      m.score *= 0.7; // 30% penalty for superseded by refinement
     }
-    // Check if this thought is a refinement of a superseded thought in the result set
+
     const thoughtPayload = results.find((r) => String(r.id) === m.thought_id)?.payload as Record<string, unknown> | undefined;
     if (thoughtPayload) {
+      // Hard penalty for correction-superseded thoughts (-50%)
+      if (thoughtPayload.superseded_by_correction === true) {
+        m.score *= 0.5;
+        m.superseded = true;
+      }
+
+      // Boost for correction thoughts (+30%)
+      if ((thoughtPayload.thought_category as string) === "correction") {
+        m.score = Math.min(1.0, m.score * 1.3);
+      }
+
+      // Penalty for keyword_echo flagged thoughts (-20%)
+      const flags = (thoughtPayload.quality_flags as string[]) ?? [];
+      if (flags.includes("keyword_echo")) {
+        m.score *= 0.8;
+      }
+
+      // Check if this thought is a refinement of a superseded thought in the result set
       const sourceIds = (thoughtPayload.source_ids as string[]) ?? [];
       const thoughtType = (thoughtPayload.thought_type as string) ?? "original";
       if ((thoughtType === "refinement" || thoughtType === "consolidation") && sourceIds.some((sid) => supersededIds.has(sid))) {
@@ -357,7 +450,7 @@ export async function retrieve(params: RetrieveParams): Promise<RetrieveResult[]
     insertQueryLog({
       id: logId,
       agent_id: params.agent_id,
-      query_text: "",  // Caller sets this if needed; retrieve() gets embedding not text
+      query_text: params.query_text ?? "",
       context_text: null,
       query_vector: Buffer.from(new Float32Array(params.query_embedding).buffer),
       returned_ids: JSON.stringify(mapped.map((r) => r.thought_id)),

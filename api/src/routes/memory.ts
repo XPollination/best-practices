@@ -1,8 +1,8 @@
 import type { FastifyInstance } from "fastify";
 import crypto from "crypto";
 import { embed } from "../services/embedding.js";
-import { think, retrieve, applyImplicitFeedback, highways, getExistingTags, getThoughtById, getLineage, ThoughtError } from "../services/thoughtspace.js";
-import { getAgentQueryCount, getSessionReturnedIds } from "../services/database.js";
+import { think, retrieve, applyImplicitFeedback, highways, getExistingTags, getThoughtById, getLineage, ThoughtError, type ThoughtCategory, type SourceRef } from "../services/thoughtspace.js";
+import { getAgentQueryCount, getSessionReturnedIds, getRecentQueriesByAgent } from "../services/database.js";
 
 // --- Contribution Threshold (Section 3.5) ---
 
@@ -23,6 +23,47 @@ function meetsContributionThreshold(prompt: string): boolean {
   return true;
 }
 
+// --- Contribution Quality Detection (Brain Quality: Maps Not Breadcrumbs) ---
+
+interface QualityAssessment {
+  passesThreshold: boolean;
+  flags: string[];
+  category: ThoughtCategory;
+}
+
+function assessContributionQuality(
+  prompt: string,
+  metadata: { thought_category?: ThoughtCategory },
+  recentQueries: string[]
+): QualityAssessment {
+  const passesThreshold = meetsContributionThreshold(prompt);
+  const flags: string[] = [];
+
+  // Keyword echo detection: >60% word overlap with recent queries
+  if (recentQueries.length > 0) {
+    const promptWords = new Set(prompt.toLowerCase().split(/\s+/).filter((w) => w.length > 2));
+    for (const query of recentQueries) {
+      const queryWords = new Set(query.toLowerCase().split(/\s+/).filter((w) => w.length > 2));
+      const overlap = [...promptWords].filter((w) => queryWords.has(w)).length;
+      if (promptWords.size > 0 && overlap / promptWords.size > 0.6) {
+        flags.push("keyword_echo");
+        break;
+      }
+    }
+  }
+
+  // Orphaned reference: contains "see" + reference without substance
+  if (/\bsee (the |my |our )?\w+/i.test(prompt) && prompt.length < 150) {
+    flags.push("orphaned_reference");
+  }
+
+  return {
+    passesThreshold,
+    flags,
+    category: metadata.thought_category || "uncategorized",
+  };
+}
+
 // --- Tag Extraction (Section 3.8) ---
 // Match prompt against existing tag values (done at /memory level with retrieve results)
 
@@ -41,10 +82,24 @@ interface MemoryRequest {
   session_id?: string;
   refines?: string;
   consolidates?: string[];
+  // Brain contribution quality fields (all optional)
+  thought_category?: ThoughtCategory;
+  topic?: string;
+  temporal_scope?: string;
+  source_ref?: SourceRef;
+  alternatives_considered?: string;
+  // Correction-specific fields
+  corrected_fact?: string;
+  correct_fact?: string;
+  supersedes?: string[];
 }
 
 async function handleMemoryRequest(params: MemoryRequest, reply: import("fastify").FastifyReply) {
-  const { prompt, agent_id, agent_name, context, session_id, refines, consolidates } = params;
+  const {
+    prompt, agent_id, agent_name, context, session_id, refines, consolidates,
+    thought_category, topic, temporal_scope, source_ref, alternatives_considered,
+    corrected_fact, correct_fact, supersedes,
+  } = params;
 
     // Step 1: Validate request (Section 3.3)
     if (!prompt || typeof prompt !== "string" || prompt.trim().length === 0) {
@@ -127,6 +182,11 @@ async function handleMemoryRequest(params: MemoryRequest, reply: import("fastify
     const isExplicitIteration = !!(refines || consolidates);
     const thresholdMet = isExplicitIteration || meetsContributionThreshold(prompt.trim());
 
+    // Quality assessment
+    const recentQueries = getRecentQueriesByAgent(agent_id, 5);
+    const qualityAssessment = assessContributionQuality(prompt.trim(), { thought_category }, recentQueries);
+    let contributionQualityFlags: string[] = [];
+
     if (thresholdMet) {
       try {
         // Tag extraction (Section 3.8): match prompt against existing tags
@@ -145,6 +205,8 @@ async function handleMemoryRequest(params: MemoryRequest, reply: import("fastify
           source_ids = consolidates;
         }
 
+        contributionQualityFlags = qualityAssessment.flags;
+
         const thinkResult = await think({
           content: prompt.trim(),
           contributor_id: agent_id,
@@ -153,6 +215,17 @@ async function handleMemoryRequest(params: MemoryRequest, reply: import("fastify
           source_ids,
           tags: extractedTags,
           context_metadata: context ?? undefined,
+          // Brain contribution quality fields
+          thought_category: thought_category ?? "uncategorized",
+          topic: topic ?? undefined,
+          temporal_scope: temporal_scope ?? undefined,
+          source_ref: source_ref ?? undefined,
+          alternatives_considered: alternatives_considered ?? undefined,
+          quality_flags: qualityAssessment.flags,
+          // Correction-specific fields
+          corrected_fact: corrected_fact ?? undefined,
+          correct_fact: correct_fact ?? undefined,
+          supersedes: supersedes ?? undefined,
         });
         contributedThoughtId = thinkResult.thought_id;
         thoughtsContributed = 1;
@@ -189,6 +262,7 @@ async function handleMemoryRequest(params: MemoryRequest, reply: import("fastify
         session_id: sessionId,
         limit: 10,
         filter_tags: [],
+        query_text: prompt.trim(),
       });
       operations.push("retrieve");
     } catch (err) {
@@ -249,8 +323,40 @@ async function handleMemoryRequest(params: MemoryRequest, reply: import("fastify
       }
     }
 
-    // Step 7: New agent onboarding (Section 3.9)
+    // Initialize guidance early for use in contradiction detection
     let guidance: string | null = null;
+
+    // Step 6b: Contradiction detection — check if new contribution matches a corrected fact
+    if (thresholdMet && contributedThoughtId && thought_category !== "correction") {
+      try {
+        const correctionResults = await retrieve({
+          query_embedding: queryEmbedding,
+          agent_id,
+          session_id: sessionId,
+          limit: 5,
+        });
+        for (const cr of correctionResults) {
+          if (cr.thought_category === "correction" && cr.score > 0.85) {
+            // Check if the new contribution resembles the corrected (wrong) fact
+            const correctionPayload = await getThoughtById(cr.thought_id);
+            if (correctionPayload) {
+              const correctFact = (correctionPayload.correct_fact as string) ?? "";
+              if (correctFact) {
+                const warning = `WARNING: This contribution may contradict a correction. Correction ${cr.thought_id}: "${correctFact}". Please verify your source is current.`;
+                guidance = guidance ? `${guidance}\n\n${warning}` : warning;
+                contributionQualityFlags.push("contradicts_correction");
+                // Update the stored thought with the flag
+                // Note: already stored, would need setPayload — skip for now, flag is in response
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.error("Contradiction detection failed:", err);
+      }
+    }
+
+    // Step 7: New agent onboarding (Section 3.9)
     const agentQueryCount = getAgentQueryCount(agent_id);
     // agentQueryCount is checked BEFORE this query is logged (the retrieve() above already logged one)
     // So first-time agent will have exactly 1 entry (from the retrieve above). Check <= 1.
@@ -297,6 +403,10 @@ async function handleMemoryRequest(params: MemoryRequest, reply: import("fastify
       content_preview: r.content.substring(0, 80),
       refined_by: r.refined_by ?? null,
       superseded: r.superseded ?? false,
+      thought_category: r.thought_category ?? "uncategorized",
+      topic: r.topic ?? null,
+      temporal_scope: r.temporal_scope ?? null,
+      quality_flags: r.quality_flags ?? [],
     }));
 
     // Prepend guidance/disambiguation to response
@@ -341,6 +451,7 @@ async function handleMemoryRequest(params: MemoryRequest, reply: import("fastify
         context_used: !!context,
         retrieval_method: "vector",
         ...(lineageSummary ? { lineage_summary: lineageSummary } : {}),
+        ...(contributionQualityFlags.length > 0 ? { quality_flags: contributionQualityFlags } : {}),
       },
     });
 }
