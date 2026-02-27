@@ -92,13 +92,15 @@ interface MemoryRequest {
   corrected_fact?: string;
   correct_fact?: string;
   supersedes?: string[];
+  // Retrieval options
+  full_content?: boolean;
 }
 
 async function handleMemoryRequest(params: MemoryRequest, reply: import("fastify").FastifyReply) {
   const {
     prompt, agent_id, agent_name, context, session_id, refines, consolidates,
     thought_category, topic, temporal_scope, source_ref, alternatives_considered,
-    corrected_fact, correct_fact, supersedes,
+    corrected_fact, correct_fact, supersedes, full_content,
   } = params;
 
     // Step 1: Validate request (Section 3.3)
@@ -401,6 +403,7 @@ async function handleMemoryRequest(params: MemoryRequest, reply: import("fastify
       contributor: r.contributor_name,
       score: parseFloat(r.score.toFixed(2)),
       content_preview: r.content.substring(0, 80),
+      ...(full_content ? { content: r.content } : {}),
       refined_by: r.refined_by ?? null,
       superseded: r.superseded ?? false,
       thought_category: r.thought_category ?? "uncategorized",
@@ -463,5 +466,48 @@ export async function memoryRoutes(app: FastifyInstance): Promise<void> {
 
   app.get<{ Querystring: MemoryRequest }>("/api/v1/memory", async (request, reply) => {
     return handleMemoryRequest(request.query as MemoryRequest, reply);
+  });
+
+  // Full-content drill-down endpoint
+  app.get<{ Params: { id: string } }>("/api/v1/memory/thought/:id", async (request, reply) => {
+    const { id } = request.params;
+    if (!id || typeof id !== "string" || id.trim().length === 0) {
+      return reply.status(400).send({
+        error: { code: "VALIDATION_ERROR", message: "thought id is required" },
+      });
+    }
+
+    const thought = await getThoughtById(id);
+    if (!thought) {
+      return reply.status(404).send({
+        error: { code: "THOUGHT_NOT_FOUND", message: `Thought ${id} not found` },
+      });
+    }
+
+    return reply.send({
+      thought: {
+        thought_id: id,
+        content: (thought.content as string) ?? "",
+        contributor_id: (thought.contributor_id as string) ?? "",
+        contributor_name: (thought.contributor_name as string) ?? "",
+        thought_type: (thought.thought_type as string) ?? "original",
+        thought_category: (thought.thought_category as string) ?? "uncategorized",
+        topic: thought.topic ?? null,
+        temporal_scope: thought.temporal_scope ?? null,
+        source_ref: thought.source_ref ?? null,
+        alternatives_considered: thought.alternatives_considered ?? null,
+        quality_flags: (thought.quality_flags as string[]) ?? [],
+        corrected_fact: thought.corrected_fact ?? null,
+        correct_fact: thought.correct_fact ?? null,
+        superseded_by_correction: thought.superseded_by_correction ?? false,
+        tags: (thought.tags as string[]) ?? [],
+        context_metadata: thought.context_metadata ?? null,
+        source_ids: (thought.source_ids as string[]) ?? [],
+        created_at: (thought.created_at as string) ?? "",
+        last_accessed: thought.last_accessed ?? null,
+        access_count: (thought.access_count as number) ?? 0,
+        pheromone_weight: (thought.pheromone_weight as number) ?? 1.0,
+      },
+    });
   });
 }
