@@ -10,6 +10,11 @@
  * 6. New agent onboarding with guidance
  * 7. Implicit feedback +0.02 on session follow-ups
  * 8. All error codes from Section 3.1
+ *
+ * From PDSA gardener-query-pollution (2026-02-27):
+ * AC-QP1: keyword_echo contribution is NOT persisted (thoughts_contributed=0)
+ * AC-QP2: Non-echo contributions still persist normally
+ * AC-QP3: Explicit refine bypasses keyword_echo guard
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { QdrantClient } from "@qdrant/js-client-rest";
@@ -392,9 +397,124 @@ describe("Spec acceptance: question -> result+trace, insight -> stored+returned"
   });
 });
 
+// --- AC-QP1: keyword_echo query does NOT persist ---
+
+describe("AC-QP1: keyword_echo contribution is NOT persisted", () => {
+  const ECHO_AGENT = `agent-qp-echo-${Date.now()}`;
+
+  it("first establishes query history, then echo contribution has thoughts_contributed=0", async () => {
+    if (!serverUp) return;
+
+    // Step 1: Make a query to establish recent query history
+    const query1 = await postMemory({
+      prompt: "What are the coordination patterns for multi-agent workflow systems?",
+      agent_id: ECHO_AGENT,
+      agent_name: "QA Echo Test",
+    });
+    expect(query1.status).toBe(200);
+
+    // Step 2: Submit a contribution with >60% word overlap (keyword echo)
+    // Reuses: "coordination", "patterns", "multi-agent", "workflow", "systems" = high overlap
+    const echoRes = await postMemory({
+      prompt: "The coordination patterns for multi-agent workflow systems involve explicit role separation and boundary enforcement in distributed architectures.",
+      agent_id: ECHO_AGENT,
+      agent_name: "QA Echo Test",
+    });
+    const echoBody = await echoRes.json();
+    expect(echoRes.status).toBe(200);
+
+    // After fix: echo contribution should NOT be persisted
+    expect(echoBody.trace.thoughts_contributed).toBe(0);
+    // But retrieval should still work
+    expect(echoBody.trace.operations).toContain("retrieve");
+  });
+});
+
+// --- AC-QP2: Non-echo queries still persist normally ---
+
+describe("AC-QP2: Non-echo contribution IS persisted", () => {
+  const FRESH_AGENT = `agent-qp-fresh-${Date.now()}`;
+
+  it("contribution with no prior queries persists normally", async () => {
+    if (!serverUp) return;
+
+    const res = await postMemory({
+      prompt: "Vitest QP2 verification: a completely original insight about quantum computing applications in distributed ledger consensus mechanisms.",
+      agent_id: FRESH_AGENT,
+      agent_name: "QA Fresh Test",
+    });
+    const body = await res.json();
+    expect(res.status).toBe(200);
+    expect(body.trace.contribution_threshold_met).toBe(true);
+    expect(body.trace.thoughts_contributed).toBe(1);
+    expect(body.trace.operations).toContain("contribute");
+  });
+
+  it("contribution with low word overlap still persists", async () => {
+    if (!serverUp) return;
+
+    // First query with some keywords
+    await postMemory({
+      prompt: "Tell me about pheromone-based navigation in ant colonies.",
+      agent_id: FRESH_AGENT,
+      agent_name: "QA Fresh Test",
+    });
+
+    // Contribution with completely different words (<60% overlap)
+    const res = await postMemory({
+      prompt: "Vitest QP2 low-overlap: emergent swarm intelligence produces resilient distributed consensus without centralized leadership hierarchies.",
+      agent_id: FRESH_AGENT,
+      agent_name: "QA Fresh Test",
+    });
+    const body = await res.json();
+    expect(res.status).toBe(200);
+    expect(body.trace.thoughts_contributed).toBe(1);
+  });
+});
+
+// --- AC-QP3: Explicit iteration bypasses echo guard ---
+
+describe("AC-QP3: Explicit refine bypasses keyword_echo guard", () => {
+  const REFINE_AGENT = `agent-qp-refine-${Date.now()}`;
+
+  it("refine with echo words still persists (explicit iteration bypass)", async () => {
+    if (!serverUp) return;
+
+    // Step 1: Create a thought to refine
+    const seedRes = await postMemory({
+      prompt: "Vitest QP3 seed: coordination patterns for multi-agent workflow systems require explicit boundary definitions.",
+      agent_id: REFINE_AGENT,
+      agent_name: "QA Refine Test",
+    });
+    const seedBody = await seedRes.json();
+    expect(seedBody.trace.thoughts_contributed).toBe(1);
+
+    // Get the thought_id of the seed
+    const seedSources = seedBody.result.sources;
+    const seedThought = seedSources.find(
+      (s: { contributor: string }) => s.contributor === "QA Refine Test"
+    );
+    // Skip if we can't find our own thought (still validates flow)
+    if (!seedThought) return;
+
+    // Step 2: Refine with similar words (would be echo without refines flag)
+    const refineRes = await postMemory({
+      prompt: "Refined: coordination patterns for multi-agent workflow systems require explicit boundary definitions and role-based task routing.",
+      agent_id: REFINE_AGENT,
+      agent_name: "QA Refine Test",
+      refines: seedThought.thought_id,
+    });
+    const refineBody = await refineRes.json();
+    expect(refineRes.status).toBe(200);
+    // Should still persist because refines = explicit iteration
+    expect(refineBody.trace.thoughts_contributed).toBe(1);
+  });
+});
+
 // Cleanup
 afterAll(async () => {
   const db = getDb();
   db.prepare("DELETE FROM query_log WHERE agent_id LIKE 'agent-p3%'").run();
   db.prepare("DELETE FROM query_log WHERE agent_id LIKE 'agent-onboard%'").run();
+  db.prepare("DELETE FROM query_log WHERE agent_id LIKE 'agent-qp%'").run();
 });
