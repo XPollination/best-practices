@@ -1,207 +1,317 @@
-# PDSA: Apply HomePage Versioning Pattern to All Projects (v2 — Full Audit)
+# PDSA: Tracks/Work-Packages Versioning Pattern (v3 — ProfileAssistant Pattern)
 
 **Date:** 2026-02-27
 **Task:** versioning-pattern-all-projects
-**Status:** PLAN (v2 — rework: complete folder audit, scripts versioned, mindspace added)
+**Status:** PLAN (v3 — fundamental restructure to tracks/work-packages)
 
 ## Plan
 
 ### Problem
-v1 only versioned docs/pdsa/spec and left scripts/ and other folders unaccounted for. Thomas wants 100% classified state: every folder either (a) in versions/ with root symlink, or (b) explicitly root-only with rationale. Scope now includes 3 projects: best-practices, xpollination-mcp-server, xpollination-mindspace.
+Flat `versions/{v0.0.1,v0.0.2}/` lumps unrelated work into shared version numbers. Brain API PDSAs and workflow engine PDSAs share "v0.0.1" even though they're independent feature streams. No independent iteration per feature — bumping version requires all features to advance together.
 
-### Design Principle
-Every version is a complete, rollback-capable snapshot of all knowledge + operational artifacts. Living source code stays at root (versioned by git). The distinction: **frozen snapshots** (docs, pdsa, spec, scripts) vs **living code** (src, api, tests, viz).
+### Reference: ProfileAssistant Pattern
+Analyzed `ProfileAssistant/tracks/ventures/xpollination-gruendung/UGP/`:
+
+```
+tracks/ventures/xpollination-gruendung/UGP/
+  context/                        ← shared source material (NOT versioned)
+    ugp-kurzkonzept-xpollination.md
+    wko-berufsbild.pdf
+  research/                       ← shared research PDSAs (NOT versioned)
+    2026-02-26-berufsbild.pdsa.md
+  kurzkonzept/                    ← WORK PACKAGE #1
+    v0.0.1/pdsa/ deliverables/    ← iteration 1
+    ...
+    v0.0.9/pdsa/ deliverables/    ← iteration 9 (independently!)
+  ugp-checkliste/                 ← WORK PACKAGE #2
+    v0.0.1/ v0.0.2/               ← iterates independently
+  antwortschreiben/               ← WORK PACKAGE #3
+    v0.0.1/
+```
+
+**Key principles:**
+1. Work packages iterate INDEPENDENTLY (kurzkonzept at v0.0.9, checkliste at v0.0.2)
+2. `context/` = shared source material at category level
+3. `research/` = shared research PDSAs outside version folders
+4. Each version: `pdsa/` + `deliverables/`
+
+### Adaptation for Code+Docs Projects
+
+ProfileAssistant is pure documents. Our projects have living source code. Adaptation:
+- **Source code stays at root** — git-versioned, evolves continuously
+- **tracks/ replaces versions/** — organizes knowledge lifecycle around code features
+- **Work packages = feature domains** — each iterates its own PDSA/docs independently
+- **deliverables/ = knowledge output** — specs, API docs, architecture docs, operational guides (NOT code)
+- **context/ = shared reference material** — design notes, architecture decisions, external references
 
 ---
 
-## Complete Folder Audit
+## Track/Work-Package Design
 
 ### 1. best-practices
 
-#### Versioned (in versions/vX.Y.Z/, root symlink)
-| Folder | Contents | Symlink | Frozen on seal? |
-|--------|----------|---------|-----------------|
-| docs/ | Knowledge management, tutorials, architecture | `docs → versions/vX.Y.Z/docs` | Yes |
-| pdsa/ | Design documents for this version's work | (no root symlink, accessed via versions/) | Yes |
-| spec/ | Specifications, schemas, type definitions | `spec → versions/vX.Y.Z/spec` | Yes |
-| scripts/ | Operational scripts (deploy, hooks, tools, version mgmt) | `scripts → versions/vX.Y.Z/scripts` | Yes |
+```
+best-practices/
+  api/                              ← ROOT (living code: brain API)
+  .claude/skills/                   ← ROOT (cross-project, auto-deployed)
+  data/                             ← ROOT (runtime, .gitignore)
+  node_modules/                     ← ROOT (.gitignore)
+  CHANGELOG.md                      ← ROOT (project-level)
+  README.md                         ← ROOT (project-level)
+  .gitignore                        ← ROOT
+  LICENSE                           ← ROOT
+  tracks/                           ← REPLACES versions/
+    brain-infrastructure/           ← TRACK
+      context/                      ← shared: API architecture, Qdrant setup, deployment
+      research/                     ← shared research PDSAs
+      contribution-quality/         ← WORK PACKAGE
+        v0.0.1/
+          pdsa/                     ← 2026-02-26-brain-contribution-quality.pdsa.md
+          deliverables/             ← quality gate spec, category taxonomy
+      retrieval-full-content/       ← WORK PACKAGE
+        v0.0.1/
+          pdsa/                     ← 2026-02-27-brain-retrieval-full-content.pdsa.md
+          deliverables/             ← API endpoint spec, scan vs drill-down doc
+      thought-lineage/              ← WORK PACKAGE
+        v0.0.1/
+          pdsa/                     ← 2026-02-25-memory-thought-lineage.pdsa.md
+          deliverables/
+    agent-operations/               ← TRACK
+      context/                      ← shared: session architecture, skill design
+      research/
+      skill-deployment/             ← WORK PACKAGE
+        v0.0.1/
+          pdsa/                     ← 2026-02-27-skill-hook-auto-deploy.pdsa.md
+          deliverables/             ← symlink map, sync scripts doc
+      brain-first-hook/             ← WORK PACKAGE
+        v0.0.1/
+          pdsa/                     ← 2026-02-26-brain-first-hook.pdsa.md
+          deliverables/
+      precompact-save/              ← WORK PACKAGE
+        v0.0.1/
+          pdsa/                     ← 2026-02-25-auto-precompact-brain-save.pdsa.md
+          deliverables/
+    knowledge-management/           ← TRACK
+      context/                      ← shared: versioning philosophy, PDSA methodology
+      research/
+      versioning-pattern/           ← WORK PACKAGE (this task!)
+        v0.0.1/
+          pdsa/                     ← 2026-02-27-versioning-pattern.pdsa.md
+          deliverables/             ← pattern documentation
+      mcp-deployment/               ← WORK PACKAGE
+        v0.0.1/
+          pdsa/                     ← 2026-02-25-document-nginx-mcp-config.pdsa.md
+          deliverables/             ← mcp-deployment-checklist.md
+    scripts/                        ← VERSIONED per-track or shared
+      deploy-brain-api.sh
+      xpo.claude.brain-first-hook.sh
+      xpo.claude.compact-recover.sh
+      xpo.claude.precompact-save.sh
+      xpo.claude.settings.json
+      xpo.claude.sync-settings.js
+      new-version.sh                ← adapted: creates version in a work package
+      seal-version.sh               ← adapted: seals a work package version
+```
 
-#### Root-Only (with rationale)
-| Folder/File | Rationale |
-|-------------|-----------|
-| api/ | Living source code with own build system (node_modules, package.json, tsconfig, dist, data). Evolves continuously via git commits. Has separate dependency tree. |
-| .claude/skills/ | Skill definitions deployed via symlinks to ~/.claude/skills/. Cross-project, not version-specific. Managed by auto-deploy (skill-hook-auto-deploy task). |
-| data/ | Runtime SQLite database. Created at runtime, in .gitignore. |
-| node_modules/ | NPM dependencies for api/. In .gitignore. |
-| versions/ | Meta-container for all version directories. |
-| CHANGELOG.md | Project-level changelog spanning all versions. Must be updated before seal. |
-| README.md | Project-level readme. |
-| LICENSE | Legal file, project-level. |
-| .gitignore | Git configuration. |
-
-#### Migration (from v1 implementation)
-scripts/ is currently a regular directory at root. Migration:
-1. Move scripts/ contents → versions/v0.0.2/scripts/
-2. Remove root scripts/
-3. Create symlink: `scripts → versions/v0.0.2/scripts`
-4. Backfill: copy scripts/ into versions/v0.0.1/scripts/ (historical completeness)
+**PDSA mapping (v0.0.2 → tracks):**
+| Current PDSA | Target Track | Work Package |
+|-------------|-------------|-------------|
+| brain-contribution-quality-maps | brain-infrastructure | contribution-quality |
+| brain-retrieval-full-content | brain-infrastructure | retrieval-full-content |
+| memory-thought-lineage | brain-infrastructure | thought-lineage |
+| brain-first-hook-userpromptsubmit | agent-operations | brain-first-hook |
+| skill-hook-auto-deploy | agent-operations | skill-deployment |
+| auto-precompact-brain-save | agent-operations | precompact-save |
+| xpo-claude-mindspace-pm-status | agent-operations | pm-status-skill |
+| task-boundary-brain-protocol | agent-operations | task-boundary |
+| mcp-server-crash-error-handling | brain-infrastructure | error-handling |
+| document-nginx-mcp-config | knowledge-management | mcp-deployment |
+| versioning-pattern-all-projects | knowledge-management | versioning-pattern |
 
 ### 2. xpollination-mcp-server
 
-#### Versioned (in versions/vX.Y.Z/, root symlink)
-| Folder | Contents | Symlink | Frozen on seal? |
-|--------|----------|---------|-----------------|
-| docs/ | Knowledge management, workflow, architecture | `docs → versions/vX.Y.Z/docs` | Yes |
-| pdsa/ | Design documents for this version's work | (no root symlink) | Yes |
-| scripts/ | Operational scripts (onboard, monitor, version mgmt) | `scripts → versions/vX.Y.Z/scripts` | Yes |
+```
+xpollination-mcp-server/
+  src/                              ← ROOT (living TypeScript code)
+  dist/                             ← ROOT (build output)
+  data/                             ← ROOT (runtime SQLite)
+  tests/                            ← ROOT (tied to src/)
+  viz/                              ← ROOT (visualization code)
+  sources/                          ← ROOT (data sources)
+  node_modules/                     ← ROOT (.gitignore)
+  CHANGELOG.md                      ← ROOT
+  CLAUDE.md                         ← ROOT
+  README.md, TODO.md                ← ROOT
+  package.json, tsconfig.json, etc. ← ROOT
+  tracks/                           ← REPLACES versions/
+    content-pipeline/               ← TRACK
+      context/                      ← shared: pipeline architecture, content strategy
+      research/
+      frames/                       ← WORK PACKAGE
+        v0.0.1/pdsa/ deliverables/
+      crawling/                     ← WORK PACKAGE
+        v0.0.1/pdsa/ deliverables/
+      publishing/                   ← WORK PACKAGE
+        v0.0.1/pdsa/ deliverables/
+    workflow-engine/                 ← TRACK
+      context/                      ← shared: state machine design, transition rules
+      research/
+      state-machine/                ← WORK PACKAGE
+        v0.0.1/pdsa/ deliverables/  ← design, unit tests spec, brain gates
+      blocked-state/                ← WORK PACKAGE
+        v0.0.1/pdsa/ deliverables/
+      role-boundaries/              ← WORK PACKAGE
+        v0.0.1/pdsa/ deliverables/
+    project-management/             ← TRACK
+      context/                      ← shared: DNA structure, CLI design
+      research/
+      interface-cli/                ← WORK PACKAGE
+        v0.0.1/pdsa/ deliverables/
+      self-contained-dna/           ← WORK PACKAGE
+        v0.0.1/pdsa/ deliverables/
+    visualization/                  ← TRACK
+      context/
+      task-board/                   ← WORK PACKAGE
+        v0.0.1/pdsa/ deliverables/
+      agent-monitor/                ← WORK PACKAGE
+        v0.0.1/pdsa/ deliverables/
+    process/                        ← TRACK (methodology, process docs)
+      context/                      ← WORKFLOW.md, tutorials
+      research/
+      acceptance-criteria/          ← WORK PACKAGE
+        v0.0.1/pdsa/ deliverables/
+```
 
-#### Root-Only (with rationale)
-| Folder/File | Rationale |
-|-------------|-----------|
-| src/ | Living TypeScript source code. Evolves continuously per git commits. Core server, tools, workflow engine, DB layer. |
-| dist/ | Build output generated from src/. In .gitignore. |
-| data/ | Runtime SQLite database. In .gitignore. |
-| tests/ | Test code tied to src/. Evolves with implementation, not docs. |
-| viz/ | Visualization code (agent-monitor.cjs, task viz). Living code tied to src/db/. |
-| sources/ | Data source configurations (bestPractices mirror). Runtime config. |
-| node_modules/ | NPM dependencies. In .gitignore. |
-| CHANGELOG.md | Project-level changelog spanning all versions. |
-| CLAUDE.md | Project memory, global, not version-specific. |
-| README.md | Project-level readme. |
-| TODO.md | Project-level roadmap. |
-| package.json, package-lock.json | NPM config tied to src/. |
-| tsconfig.json | TypeScript config tied to src/. |
-| vitest.config.ts | Test config tied to tests/. |
-| .env.example | Config template. |
-| .gitignore | Git configuration. |
-
-#### Migration
-scripts/ is currently a regular directory at root. Migration:
-1. Move scripts/ contents → versions/v0.0.1/scripts/
-2. Remove root scripts/
-3. Create symlink: `scripts → versions/v0.0.1/scripts`
+**PDSA mapping (46 PDSAs → tracks):**
+Key mappings (too many to list all):
+- workflow-engine PDSAs → tracks/workflow-engine/state-machine/
+- viz-* PDSAs → tracks/visualization/task-board/
+- process-* PDSAs → tracks/process/
+- pm-tool-* → tracks/project-management/interface-cli/
 
 ### 3. xpollination-mindspace
 
-#### Versioned (in versions/vX.Y.Z/, root symlink)
-| Folder | Contents | Symlink | Frozen on seal? |
-|--------|----------|---------|-----------------|
-| docs/ | Knowledge management docs | `docs → versions/vX.Y.Z/docs` (exists) | Yes |
-| pdsa/ | Design documents | (no root symlink) | Yes |
-
-#### Root-Only (with rationale)
-| Folder/File | Rationale |
-|-------------|-----------|
-| .claude/ | Project-specific Claude config. |
-| CLAUDE.md | Project memory, global. |
-| README.md | Project-level readme. |
-
-#### Migration
-- docs symlink already exists and works
-- Create CHANGELOG.md with v0.0.1 history
-- No scripts/ to version (minimal project)
+```
+xpollination-mindspace/
+  .claude/                          ← ROOT
+  CLAUDE.md                         ← ROOT
+  README.md                         ← ROOT
+  tracks/                           ← REPLACES versions/
+    architecture/                   ← TRACK
+      context/                      ← shared: system design notes
+      research/
+      system-design/                ← WORK PACKAGE
+        v0.0.1/
+          pdsa/
+          deliverables/             ← architecture docs (current docs/ content)
+```
 
 ---
 
-## Do
+## Scripts Adaptation
 
-### 1. CHANGELOG.md (all 3 projects)
-
-Same template as v1. Backfill from git log.
-- best-practices: v0.0.1 + v0.0.2 (already created in v1, verify)
-- xpollination-mcp-server: v0.0.1 (already created in v1, verify)
-- xpollination-mindspace: v0.0.1 (NEW)
-
-### 2. Scripts Migration (best-practices)
-
+### new-version.sh (work-package scoped)
 ```bash
-# Move scripts into active version
-cp -r scripts/* versions/v0.0.2/scripts/
-# Backfill v0.0.1 scripts (subset that existed then)
-mkdir -p versions/v0.0.1/scripts
-# Only backfill scripts that existed in v0.0.1 era if identifiable from git log
-# Otherwise copy current as baseline
-cp -r scripts/* versions/v0.0.1/scripts/
-# Replace root with symlink
-rm -rf scripts
-ln -sfn versions/v0.0.2/scripts scripts
-```
+#!/bin/bash
+# Creates new version in a specific work package
+# Usage: new-version.sh <track/work-package> <version>
+# Example: new-version.sh brain-infrastructure/contribution-quality v0.0.2
 
-### 3. Scripts Migration (xpollination-mcp-server)
+REPO=$(git rev-parse --show-toplevel)
+WP_PATH="${1:-}"
+NEW_VER="${2:-}"
 
-```bash
-# Move scripts into version
-mkdir -p versions/v0.0.1/scripts
-cp -r scripts/* versions/v0.0.1/scripts/
-# Replace root with symlink
-rm -rf scripts
-ln -sfn versions/v0.0.1/scripts scripts
-```
+WP_DIR="$REPO/tracks/$WP_PATH"
+mkdir -p "$WP_DIR/$NEW_VER/pdsa"
+mkdir -p "$WP_DIR/$NEW_VER/deliverables"
 
-### 4. Update new-version.sh (both projects)
-
-Add scripts/ copying to existing script:
-```bash
-# After docs and spec copy, add:
-# Copy scripts from current version
-if [ -d "$REPO/versions/$CURRENT_VER/scripts" ]; then
-    cp -r "$REPO/versions/$CURRENT_VER/scripts/"* "$REPO/versions/$NEW_VER/scripts/" 2>/dev/null
+# Copy deliverables from previous version as starting point
+PREV_VER=$(ls -d "$WP_DIR"/v0.0.* 2>/dev/null | sort -V | tail -1 | xargs basename)
+if [ -n "$PREV_VER" ] && [ -d "$WP_DIR/$PREV_VER/deliverables" ]; then
+    cp -r "$WP_DIR/$PREV_VER/deliverables/"* "$WP_DIR/$NEW_VER/deliverables/" 2>/dev/null
 fi
-
-# Update symlinks — add scripts
-ln -sfn "versions/$NEW_VER/scripts" "$REPO/scripts"
+# pdsa/ starts empty (new iteration, new design work)
 ```
 
-### 5. xpollination-mindspace Setup
-
+### seal-version.sh (work-package scoped)
 ```bash
-# CHANGELOG.md — backfill v0.0.1 from git log
-# Verify docs symlink: docs → versions/v0.0.1/docs (already exists)
-# No scripts/ to version
+#!/bin/bash
+# Seals a work package version
+# Usage: seal-version.sh <track/work-package> <version>
+WP_PATH="${1:-}"
+VER="${2:-}"
+git tag -a "${WP_PATH//\//-}-$VER" -m "Sealed $WP_PATH $VER"
 ```
 
-### 6. Root Symlinks (complete map)
+---
 
-**best-practices:**
-```
-docs    → versions/v0.0.2/docs     (exists from v1)
-spec    → versions/v0.0.2/spec     (exists from v1)
-scripts → versions/v0.0.2/scripts  (NEW — from migration)
-```
+## Migration Plan (Big Bang)
 
-**xpollination-mcp-server:**
-```
-docs    → versions/v0.0.1/docs     (pre-existing)
-scripts → versions/v0.0.1/scripts  (NEW — from migration)
-```
+### Phase 1: Create tracks/ structure
+For each project, create the tracks/ tree with context/ and work-package dirs.
 
-**xpollination-mindspace:**
-```
-docs    → versions/v0.0.1/docs     (pre-existing)
-```
+### Phase 2: Migrate PDSAs
+Move each existing PDSA from `versions/vX.Y.Z/pdsa/` into the correct `tracks/{track}/{work-package}/v0.0.1/pdsa/`.
 
-### 7. Version Boundary Criteria (unchanged from v1)
+### Phase 3: Migrate docs
+Move docs from `versions/vX.Y.Z/docs/` into appropriate `tracks/{track}/context/` or `tracks/{track}/{work-package}/v0.0.1/deliverables/`.
 
-| Trigger | Action |
-|---------|--------|
-| Major feature complete | Bump minor: v0.0.1 → v0.0.2 |
-| Architecture change | Bump minor |
-| Significant docs overhaul | Bump minor |
-| Bug fixes only | Patch: v0.0.1 → v0.0.1-fix.1 (rare) |
-| Breaking workflow changes | Bump minor + document migration |
+### Phase 4: Migrate specs
+Move specs into relevant `tracks/{track}/{work-package}/v0.0.1/deliverables/`.
 
-**Current versions:**
-- xpollination-mcp-server: v0.0.1 (active)
-- best-practices: v0.0.2 (active)
-- xpollination-mindspace: v0.0.1 (active)
+### Phase 5: Remove old versions/ and symlinks
+Remove `versions/` directory. Remove root symlinks (docs, spec, scripts) that pointed to versions/.
+
+### Phase 6: Update references
+Update CLAUDE.md references from `versions/` paths to `tracks/` paths.
+
+### Phase 7: Scripts
+Place adapted new-version.sh and seal-version.sh in root scripts/ (NOT versioned — they're meta-tools for the tracks system).
+
+---
+
+## Root-Only Classification (All 3 Projects)
+
+### best-practices root-only
+| Folder/File | Rationale |
+|-------------|-----------|
+| api/ | Living source code with own build system. Git-versioned. |
+| .claude/skills/ | Cross-project skills, auto-deployed via symlinks. |
+| data/ | Runtime SQLite. .gitignore. |
+| node_modules/ | Dependencies. .gitignore. |
+| scripts/ | Meta-tools (version management, deployment). |
+| CHANGELOG.md | Project-level, spans all tracks. |
+| README.md, LICENSE, .gitignore | Project-level config/docs. |
+
+### xpollination-mcp-server root-only
+| Folder/File | Rationale |
+|-------------|-----------|
+| src/ | Living TypeScript source. Git-versioned. |
+| dist/ | Build output from src/. |
+| data/ | Runtime SQLite. .gitignore. |
+| tests/ | Test code tied to src/. |
+| viz/ | Visualization code. Living. |
+| sources/ | Data source configs. |
+| node_modules/ | Dependencies. .gitignore. |
+| scripts/ | Meta-tools for tracks system. |
+| CHANGELOG.md, CLAUDE.md, README.md, TODO.md | Project-level. |
+| package.json, tsconfig.json, vitest.config.ts | Build config tied to src/. |
+| .env.example, .gitignore | Config. |
+
+### xpollination-mindspace root-only
+| Folder/File | Rationale |
+|-------------|-----------|
+| .claude/ | Project Claude config. |
+| CLAUDE.md, README.md | Project-level. |
 
 ## Study
-- Verify all 3 projects: every root-level folder is either symlinked to versions/ or documented as root-only
-- Verify scripts symlinks resolve correctly and scripts execute via symlink
-- Verify new-version.sh copies scripts/ in addition to docs/spec
-- Verify CHANGELOG.md exists in all 3 projects
-- Verify xpollination-mindspace has working docs symlink
+- Verify tracks structure matches ProfileAssistant pattern
+- Verify PDSA mapping is complete (no orphaned PDSAs)
+- Verify work packages are correctly scoped (not too granular, not too broad)
+- Verify context/ directories contain the right shared material
+- Verify all root-only folders documented with rationale
 
 ## Act
-- Update versioning-pattern.md with complete folder audit methodology
-- Future: when adding new root-level folders to any project, classify as versioned or root-only in this audit
+- After migration: update CLAUDE.md in all projects to reference tracks/ paths
+- Update agent workflow to use tracks/ for PDSA placement
+- Document the pattern in knowledge-management track context
