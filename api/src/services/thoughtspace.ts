@@ -585,6 +585,9 @@ export async function highways(params: HighwayParams = {}): Promise<HighwayResul
   const minUsers = params.min_users ?? 2;
   const limit = params.limit ?? 20;
 
+  // Internal type with full content for dedup comparison
+  type CandidateWithContent = HighwayResult & { _fullContent: string };
+
   // When query_embedding is provided, use vector search with access_count filter (hybrid)
   if (params.query_embedding) {
     let searchResults;
@@ -603,29 +606,31 @@ export async function highways(params: HighwayParams = {}): Promise<HighwayResul
       throw new ThoughtError("QDRANT_ERROR", `Qdrant search failed: ${err}`);
     }
 
-    const candidates: HighwayResult[] = [];
+    const candidates: CandidateWithContent[] = [];
     for (const point of searchResults) {
       const p = point.payload as Record<string, unknown>;
       const accessedBy = (p.accessed_by as string[]) ?? [];
       if (accessedBy.length < minUsers) continue;
 
+      const fullContent = (p.content as string) ?? "";
       const accessCount = (p.access_count as number) ?? 0;
       candidates.push({
         thought_id: String(point.id),
-        content_preview: ((p.content as string) ?? "").substring(0, 80),
+        content_preview: fullContent.substring(0, 80),
         access_count: accessCount,
         unique_users: accessedBy.length,
         traffic_score: accessCount * accessedBy.length,
         pheromone_weight: (p.pheromone_weight as number) ?? 1.0,
         tags: (p.tags as string[]) ?? [],
+        _fullContent: fullContent,
       });
     }
 
-    return candidates.slice(0, limit);
+    return deduplicateHighways(candidates, limit);
   }
 
   // Without query_embedding: existing scroll behavior (global frequency)
-  const candidates: HighwayResult[] = [];
+  const candidates: CandidateWithContent[] = [];
   let offset: string | number | undefined = undefined;
 
   while (true) {
@@ -651,15 +656,17 @@ export async function highways(params: HighwayParams = {}): Promise<HighwayResul
       const accessedBy = (p.accessed_by as string[]) ?? [];
       if (accessedBy.length < minUsers) continue;
 
+      const fullContent = (p.content as string) ?? "";
       const accessCount = (p.access_count as number) ?? 0;
       candidates.push({
         thought_id: String(point.id),
-        content_preview: ((p.content as string) ?? "").substring(0, 80),
+        content_preview: fullContent.substring(0, 80),
         access_count: accessCount,
         unique_users: accessedBy.length,
         traffic_score: accessCount * accessedBy.length,
         pheromone_weight: (p.pheromone_weight as number) ?? 1.0,
         tags: (p.tags as string[]) ?? [],
+        _fullContent: fullContent,
       });
     }
 
@@ -668,7 +675,64 @@ export async function highways(params: HighwayParams = {}): Promise<HighwayResul
   }
 
   candidates.sort((a, b) => b.traffic_score - a.traffic_score);
-  return candidates.slice(0, limit);
+  return deduplicateHighways(candidates, limit);
+}
+
+/**
+ * Deduplicate highway candidates by text similarity.
+ * When two candidates have >0.95 similarity, keeps the one with highest traffic_score.
+ * Uses normalized text comparison on full content for accuracy.
+ */
+function deduplicateHighways(
+  candidates: (HighwayResult & { _fullContent: string })[],
+  limit: number,
+): HighwayResult[] {
+  // Sort by traffic_score descending so we keep the best of each cluster
+  const sorted = [...candidates].sort((a, b) => b.traffic_score - a.traffic_score);
+  const accepted: (HighwayResult & { _fullContent: string })[] = [];
+
+  for (const candidate of sorted) {
+    const isDuplicate = accepted.some(
+      (a) => textSimilarity(a._fullContent, candidate._fullContent) > 0.95,
+    );
+    if (!isDuplicate) {
+      accepted.push(candidate);
+    }
+    if (accepted.length >= limit) break;
+  }
+
+  // Strip internal _fullContent field before returning
+  return accepted.map(({ _fullContent, ...rest }) => rest);
+}
+
+/**
+ * Compute text similarity between two strings (0..1).
+ * Uses normalized bigram overlap (Dice coefficient) for efficiency.
+ */
+function textSimilarity(a: string, b: string): number {
+  const norm = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
+  const na = norm(a);
+  const nb = norm(b);
+  if (na === nb) return 1.0;
+  if (na.length === 0 || nb.length === 0) return 0.0;
+
+  // Bigram sets for Dice coefficient
+  const bigrams = (s: string): Set<string> => {
+    const set = new Set<string>();
+    for (let i = 0; i < s.length - 1; i++) {
+      set.add(s.substring(i, i + 2));
+    }
+    return set;
+  };
+
+  const ba = bigrams(na);
+  const bb = bigrams(nb);
+  let intersection = 0;
+  for (const bg of ba) {
+    if (bb.has(bg)) intersection++;
+  }
+
+  return (2 * intersection) / (ba.size + bb.size);
 }
 
 // --- Tag extraction helper — Section 3.8 ---
