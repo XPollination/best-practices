@@ -15,6 +15,16 @@ Single command to scan all project databases, present a categorized summary, the
 
 ---
 
+## Configuration
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `layer1_enabled` | `true` | Enable Brain Health gardening phase. Set to `false` to skip brain health diagnostic entirely. |
+
+When `layer1_enabled` is `false`, skip Step 1.5 (Brain Health) and proceed directly from Step 1 to Step 2.
+
+---
+
 ## Step 0: Brain Context
 
 Before scanning databases, query brain for any pending human context (rework notes, verbal decisions):
@@ -45,6 +55,37 @@ done
 ```
 
 Collect all non-terminal tasks (exclude `complete`, `cancelled`).
+
+## Step 1.5: Brain Health (Layer 1 Gardening)
+
+**Skip this step if `layer1_enabled` is `false`.**
+
+Run the gardener engine skill with `scope=recent depth=shallow` for a read-only diagnostic of brain health. This is a shallow pass — no mutations, no refine, no consolidate. Count, categorize, flag noise, report only.
+
+```
+/xpo.claude.mindspace.garden recent shallow
+```
+
+The gardener engine (`xpo.claude.mindspace.garden`) returns a report with:
+- **New thought count**: how many thoughts were contributed recently
+- **Noise flagged**: keyword echoes, near-duplicates, too-short entries
+- **Domains active**: which topic categories have recent activity
+- **Duplicates flagged**: thought clusters that should be consolidated
+
+Present the gardener output as a **BRAIN HEALTH** section in the PM status:
+
+```
+=== BRAIN HEALTH (diagnostic — shallow, read-only) ===
+Thoughts analyzed: N
+New contributions: N
+Noise flagged: N (keyword echoes, near-duplicates)
+Active domains: domain1, domain2, ...
+Duplicates to consolidate: N
+Status: healthy | needs attention | degraded
+===
+```
+
+This informs Thomas's decisions — it is Study before Act. If brain health shows high noise or many duplicates, Thomas may choose to run a deeper gardening pass (`/xpo.claude.mindspace.garden full deep`).
 
 ## Step 2: Phase 1 — Summary Table
 
