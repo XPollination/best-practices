@@ -1,174 +1,207 @@
-# PDSA: Apply HomePage Versioning Pattern to Code+Docs Projects
+# PDSA: Apply HomePage Versioning Pattern to All Projects (v2 — Full Audit)
 
 **Date:** 2026-02-27
 **Task:** versioning-pattern-all-projects
-**Status:** PLAN
+**Status:** PLAN (v2 — rework: complete folder audit, scripts versioned, mindspace added)
 
 ## Plan
 
 ### Problem
-HomePage has a mature versioning pattern (symlinks, CHANGELOG, deploy script, version sealing). MCP server and best-practices lack CHANGELOGs, deploy scripts, and consistent structure. PDSAs are scattered in MCP server (root /pdsa/ AND /versions/v0.0.1/pdsa/).
+v1 only versioned docs/pdsa/spec and left scripts/ and other folders unaccounted for. Thomas wants 100% classified state: every folder either (a) in versions/ with root symlink, or (b) explicitly root-only with rationale. Scope now includes 3 projects: best-practices, xpollination-mcp-server, xpollination-mindspace.
 
-### Key Adaptation: Code vs Site
-HomePage versions the **complete deliverable** (site/ is a frozen snapshot). Code+docs projects version **knowledge artifacts** (docs, pdsa, spec) while **source code stays at root** — it's a living artifact that evolves continuously, not frozen per version.
-
-### What Gets Versioned (in versions/vX.Y.Z/)
-| Directory | Contents | Frozen on seal? |
-|-----------|----------|----------------|
-| docs/ | Knowledge management, tutorials, architecture docs | Yes |
-| pdsa/ | Design documents for this version's work | Yes |
-| spec/ | Specifications, schemas, type definitions (as docs) | Yes |
-
-### What Stays at Root (NOT versioned)
-| Directory | Reason |
-|-----------|--------|
-| src/, api/ | Living code, evolves continuously |
-| data/ | Runtime data, database files |
-| scripts/ | Operational scripts (deploy, tools) |
-| node_modules/ | Dependencies |
-| package.json, tsconfig.json | Build config |
-| CLAUDE.md | Project memory (global, not version-specific) |
-
-## Do
-
-### 1. CHANGELOG.md (both projects)
-
-**Template:**
-```markdown
-# Changelog
-
-All notable changes documented here.
-Updated with every version — mandatory before version seal.
+### Design Principle
+Every version is a complete, rollback-capable snapshot of all knowledge + operational artifacts. Living source code stays at root (versioned by git). The distinction: **frozen snapshots** (docs, pdsa, spec, scripts) vs **living code** (src, api, tests, viz).
 
 ---
 
-## [v0.0.2] — 2026-02-27 (Active)
+## Complete Folder Audit
 
-### Added
-- ...
+### 1. best-practices
 
-### Changed
-- ...
+#### Versioned (in versions/vX.Y.Z/, root symlink)
+| Folder | Contents | Symlink | Frozen on seal? |
+|--------|----------|---------|-----------------|
+| docs/ | Knowledge management, tutorials, architecture | `docs → versions/vX.Y.Z/docs` | Yes |
+| pdsa/ | Design documents for this version's work | (no root symlink, accessed via versions/) | Yes |
+| spec/ | Specifications, schemas, type definitions | `spec → versions/vX.Y.Z/spec` | Yes |
+| scripts/ | Operational scripts (deploy, hooks, tools, version mgmt) | `scripts → versions/vX.Y.Z/scripts` | Yes |
 
-## [v0.0.1] — 2026-02-17
+#### Root-Only (with rationale)
+| Folder/File | Rationale |
+|-------------|-----------|
+| api/ | Living source code with own build system (node_modules, package.json, tsconfig, dist, data). Evolves continuously via git commits. Has separate dependency tree. |
+| .claude/skills/ | Skill definitions deployed via symlinks to ~/.claude/skills/. Cross-project, not version-specific. Managed by auto-deploy (skill-hook-auto-deploy task). |
+| data/ | Runtime SQLite database. Created at runtime, in .gitignore. |
+| node_modules/ | NPM dependencies for api/. In .gitignore. |
+| versions/ | Meta-container for all version directories. |
+| CHANGELOG.md | Project-level changelog spanning all versions. Must be updated before seal. |
+| README.md | Project-level readme. |
+| LICENSE | Legal file, project-level. |
+| .gitignore | Git configuration. |
 
-### Added
-- Initial release
-```
+#### Migration (from v1 implementation)
+scripts/ is currently a regular directory at root. Migration:
+1. Move scripts/ contents → versions/v0.0.2/scripts/
+2. Remove root scripts/
+3. Create symlink: `scripts → versions/v0.0.2/scripts`
+4. Backfill: copy scripts/ into versions/v0.0.1/scripts/ (historical completeness)
 
-**Backfill:** Review git log to reconstruct v0.0.1 changelog for both projects. v0.0.2 for best-practices.
+### 2. xpollination-mcp-server
 
-### 2. Root Symlinks
+#### Versioned (in versions/vX.Y.Z/, root symlink)
+| Folder | Contents | Symlink | Frozen on seal? |
+|--------|----------|---------|-----------------|
+| docs/ | Knowledge management, workflow, architecture | `docs → versions/vX.Y.Z/docs` | Yes |
+| pdsa/ | Design documents for this version's work | (no root symlink) | Yes |
+| scripts/ | Operational scripts (onboard, monitor, version mgmt) | `scripts → versions/vX.Y.Z/scripts` | Yes |
 
-**xpollination-mcp-server** (already has `docs` symlink):
-```
-docs → versions/v0.0.1/docs  # already exists
-```
+#### Root-Only (with rationale)
+| Folder/File | Rationale |
+|-------------|-----------|
+| src/ | Living TypeScript source code. Evolves continuously per git commits. Core server, tools, workflow engine, DB layer. |
+| dist/ | Build output generated from src/. In .gitignore. |
+| data/ | Runtime SQLite database. In .gitignore. |
+| tests/ | Test code tied to src/. Evolves with implementation, not docs. |
+| viz/ | Visualization code (agent-monitor.cjs, task viz). Living code tied to src/db/. |
+| sources/ | Data source configurations (bestPractices mirror). Runtime config. |
+| node_modules/ | NPM dependencies. In .gitignore. |
+| CHANGELOG.md | Project-level changelog spanning all versions. |
+| CLAUDE.md | Project memory, global, not version-specific. |
+| README.md | Project-level readme. |
+| TODO.md | Project-level roadmap. |
+| package.json, package-lock.json | NPM config tied to src/. |
+| tsconfig.json | TypeScript config tied to src/. |
+| vitest.config.ts | Test config tied to tests/. |
+| .env.example | Config template. |
+| .gitignore | Git configuration. |
 
-**best-practices** (missing):
-```
-docs → versions/v0.0.2/docs  # new symlink
-spec → versions/v0.0.2/spec  # new symlink
-```
+#### Migration
+scripts/ is currently a regular directory at root. Migration:
+1. Move scripts/ contents → versions/v0.0.1/scripts/
+2. Remove root scripts/
+3. Create symlink: `scripts → versions/v0.0.1/scripts`
 
-### 3. scripts/new-version.sh (adapted for code+docs)
+### 3. xpollination-mindspace
 
-Adapted from HomePage:
+#### Versioned (in versions/vX.Y.Z/, root symlink)
+| Folder | Contents | Symlink | Frozen on seal? |
+|--------|----------|---------|-----------------|
+| docs/ | Knowledge management docs | `docs → versions/vX.Y.Z/docs` (exists) | Yes |
+| pdsa/ | Design documents | (no root symlink) | Yes |
+
+#### Root-Only (with rationale)
+| Folder/File | Rationale |
+|-------------|-----------|
+| .claude/ | Project-specific Claude config. |
+| CLAUDE.md | Project memory, global. |
+| README.md | Project-level readme. |
+
+#### Migration
+- docs symlink already exists and works
+- Create CHANGELOG.md with v0.0.1 history
+- No scripts/ to version (minimal project)
+
+---
+
+## Do
+
+### 1. CHANGELOG.md (all 3 projects)
+
+Same template as v1. Backfill from git log.
+- best-practices: v0.0.1 + v0.0.2 (already created in v1, verify)
+- xpollination-mcp-server: v0.0.1 (already created in v1, verify)
+- xpollination-mindspace: v0.0.1 (NEW)
+
+### 2. Scripts Migration (best-practices)
+
 ```bash
-#!/bin/bash
-# Creates new version directory, copies docs structure, empties pdsa/
-
-REPO=$(git rev-parse --show-toplevel)
-NEW_VER="${1:-}"
-
-# Determine current version from docs symlink
-CURRENT_TARGET=$(readlink "$REPO/docs")
-CURRENT_VER=$(echo "$CURRENT_TARGET" | sed 's|versions/||; s|/docs||')
-
-# Create new version with docs structure
-mkdir -p "$REPO/versions/$NEW_VER/docs"
-mkdir -p "$REPO/versions/$NEW_VER/pdsa"
-mkdir -p "$REPO/versions/$NEW_VER/spec"
-
-# Copy docs and spec from current version
-cp -r "$REPO/versions/$CURRENT_VER/docs/"* "$REPO/versions/$NEW_VER/docs/"
-if [ -d "$REPO/versions/$CURRENT_VER/spec" ]; then
-    cp -r "$REPO/versions/$CURRENT_VER/spec/"* "$REPO/versions/$NEW_VER/spec/" 2>/dev/null
-fi
-# pdsa/ starts empty (new version, new work)
-
-# Update symlinks
-ln -sfn "versions/$NEW_VER/docs" "$REPO/docs"
-if [ -L "$REPO/spec" ]; then
-    ln -sfn "versions/$NEW_VER/spec" "$REPO/spec"
-fi
+# Move scripts into active version
+cp -r scripts/* versions/v0.0.2/scripts/
+# Backfill v0.0.1 scripts (subset that existed then)
+mkdir -p versions/v0.0.1/scripts
+# Only backfill scripts that existed in v0.0.1 era if identifiable from git log
+# Otherwise copy current as baseline
+cp -r scripts/* versions/v0.0.1/scripts/
+# Replace root with symlink
+rm -rf scripts
+ln -sfn versions/v0.0.2/scripts scripts
 ```
 
-### 4. Version Seal Script (adapted deploy.sh)
+### 3. Scripts Migration (xpollination-mcp-server)
 
-No "deploy" for code projects, but version sealing:
 ```bash
-#!/bin/bash
-# Seals a version: changelog gate, git tag
+# Move scripts into version
+mkdir -p versions/v0.0.1/scripts
+cp -r scripts/* versions/v0.0.1/scripts/
+# Replace root with symlink
+rm -rf scripts
+ln -sfn versions/v0.0.1/scripts scripts
+```
 
-VER="${1:-}"
-CHANGELOG="$REPO/CHANGELOG.md"
+### 4. Update new-version.sh (both projects)
 
-# Gates
-if ! grep -q "^\## \[${VER}\]" "$CHANGELOG"; then
-    echo "ERROR: No changelog entry for ${VER}"
-    exit 1
+Add scripts/ copying to existing script:
+```bash
+# After docs and spec copy, add:
+# Copy scripts from current version
+if [ -d "$REPO/versions/$CURRENT_VER/scripts" ]; then
+    cp -r "$REPO/versions/$CURRENT_VER/scripts/"* "$REPO/versions/$NEW_VER/scripts/" 2>/dev/null
 fi
 
-# Tag
-git tag -a "$VER" -m "Version $VER sealed"
-git push origin "$VER"
-echo "Version $VER sealed and tagged."
+# Update symlinks — add scripts
+ln -sfn "versions/$NEW_VER/scripts" "$REPO/scripts"
 ```
 
-### 5. PDSA Cleanup (MCP server)
+### 5. xpollination-mindspace Setup
 
-Move scattered PDSAs from root `/pdsa/` into `/versions/v0.0.1/pdsa/`:
 ```bash
-# In xpollination-mcp-server
-mv pdsa/* versions/v0.0.1/pdsa/
-rmdir pdsa
+# CHANGELOG.md — backfill v0.0.1 from git log
+# Verify docs symlink: docs → versions/v0.0.1/docs (already exists)
+# No scripts/ to version
 ```
 
-### 6. Version Boundary Criteria
+### 6. Root Symlinks (complete map)
+
+**best-practices:**
+```
+docs    → versions/v0.0.2/docs     (exists from v1)
+spec    → versions/v0.0.2/spec     (exists from v1)
+scripts → versions/v0.0.2/scripts  (NEW — from migration)
+```
+
+**xpollination-mcp-server:**
+```
+docs    → versions/v0.0.1/docs     (pre-existing)
+scripts → versions/v0.0.1/scripts  (NEW — from migration)
+```
+
+**xpollination-mindspace:**
+```
+docs    → versions/v0.0.1/docs     (pre-existing)
+```
+
+### 7. Version Boundary Criteria (unchanged from v1)
 
 | Trigger | Action |
 |---------|--------|
-| Major feature complete (e.g., brain API v2) | Bump minor: v0.0.1 → v0.0.2 |
+| Major feature complete | Bump minor: v0.0.1 → v0.0.2 |
 | Architecture change | Bump minor |
 | Significant docs overhaul | Bump minor |
-| Bug fixes only, no new features | Patch: v0.0.1 → v0.0.1-fix.1 (rare) |
+| Bug fixes only | Patch: v0.0.1 → v0.0.1-fix.1 (rare) |
 | Breaking workflow changes | Bump minor + document migration |
 
-**Current version assessment:**
-- xpollination-mcp-server: Stay at v0.0.1 (workflow engine + brain gate just added, seal when stable)
-- best-practices: v0.0.2 is active (brain API, contribution quality, hooks)
-
-### 7. Migration Plan
-
-**xpollination-mcp-server:**
-1. Create CHANGELOG.md with v0.0.1 history
-2. Move root pdsa/ → versions/v0.0.1/pdsa/
-3. Add scripts/new-version.sh and scripts/seal-version.sh
-4. Verify docs symlink works
-
-**best-practices:**
-1. Create CHANGELOG.md with v0.0.1 and v0.0.2 history
-2. Add root symlinks: docs → versions/v0.0.2/docs, spec → versions/v0.0.2/spec
-3. Add scripts/new-version.sh and scripts/seal-version.sh
-4. Verify symlinks work
+**Current versions:**
+- xpollination-mcp-server: v0.0.1 (active)
+- best-practices: v0.0.2 (active)
+- xpollination-mindspace: v0.0.1 (active)
 
 ## Study
-- Verify both projects have CHANGELOG.md with accurate history
-- Verify symlinks resolve correctly
-- Verify new-version.sh creates correct structure
-- Verify PDSA naming convention consistent
+- Verify all 3 projects: every root-level folder is either symlinked to versions/ or documented as root-only
+- Verify scripts symlinks resolve correctly and scripts execute via symlink
+- Verify new-version.sh copies scripts/ in addition to docs/spec
+- Verify CHANGELOG.md exists in all 3 projects
+- Verify xpollination-mindspace has working docs symlink
 
 ## Act
-- Document version boundary criteria in versioning-pattern.md (update existing doc)
-- Add CHANGELOG gate to agent workflow (agents check CHANGELOG before seal)
+- Update versioning-pattern.md with complete folder audit methodology
+- Future: when adding new root-level folders to any project, classify as versioned or root-only in this audit
