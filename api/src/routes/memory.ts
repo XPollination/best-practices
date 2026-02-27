@@ -392,7 +392,7 @@ async function handleMemoryRequest(params: MemoryRequest, reply: import("fastify
     // Step 9: Highways (Section 4.3)
     let highwaysNearby: string[] = [];
     try {
-      const hw = await highways({ min_access: 3, min_users: 2, limit: 5 });
+      const hw = await highways({ min_access: 3, min_users: 2, limit: 5, query_embedding: queryEmbedding });
       highwaysNearby = hw.map((h) =>
         `${h.content_preview} (${h.access_count} accesses, ${h.unique_users} agents)`
       );

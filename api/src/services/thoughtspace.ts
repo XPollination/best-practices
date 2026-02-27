@@ -567,6 +567,7 @@ export interface HighwayParams {
   min_access?: number;
   min_users?: number;
   limit?: number;
+  query_embedding?: number[];
 }
 
 export interface HighwayResult {
@@ -584,6 +585,46 @@ export async function highways(params: HighwayParams = {}): Promise<HighwayResul
   const minUsers = params.min_users ?? 2;
   const limit = params.limit ?? 20;
 
+  // When query_embedding is provided, use vector search with access_count filter (hybrid)
+  if (params.query_embedding) {
+    let searchResults;
+    try {
+      searchResults = await client.search(COLLECTION, {
+        vector: params.query_embedding,
+        limit: limit * 3,
+        with_payload: true,
+        filter: {
+          must: [
+            { key: "access_count", range: { gte: minAccess } },
+          ],
+        },
+      });
+    } catch (err) {
+      throw new ThoughtError("QDRANT_ERROR", `Qdrant search failed: ${err}`);
+    }
+
+    const candidates: HighwayResult[] = [];
+    for (const point of searchResults) {
+      const p = point.payload as Record<string, unknown>;
+      const accessedBy = (p.accessed_by as string[]) ?? [];
+      if (accessedBy.length < minUsers) continue;
+
+      const accessCount = (p.access_count as number) ?? 0;
+      candidates.push({
+        thought_id: String(point.id),
+        content_preview: ((p.content as string) ?? "").substring(0, 80),
+        access_count: accessCount,
+        unique_users: accessedBy.length,
+        traffic_score: accessCount * accessedBy.length,
+        pheromone_weight: (p.pheromone_weight as number) ?? 1.0,
+        tags: (p.tags as string[]) ?? [],
+      });
+    }
+
+    return candidates.slice(0, limit);
+  }
+
+  // Without query_embedding: existing scroll behavior (global frequency)
   const candidates: HighwayResult[] = [];
   let offset: string | number | undefined = undefined;
 
