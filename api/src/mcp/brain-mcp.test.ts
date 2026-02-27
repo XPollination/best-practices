@@ -8,6 +8,12 @@
  * AC-B4: query_brain tool returns brain query results
  * AC-B5: contribute_to_brain tool stores thoughts in brain
  * AC-B6: CORS headers present (Access-Control-Allow-Origin: *)
+ *
+ * From PDSA gardener-mcp-full-content (2026-02-27):
+ * AC-B7: query_brain with include_full_content returns full content in sources
+ * AC-B8: drill_down_thought returns full thought by ID
+ * AC-B9: drill_down_thought with invalid ID returns error
+ * AC-B10: tools/list includes drill_down_thought (3 tools total)
  */
 import { describe, it, expect, beforeAll } from "vitest";
 
@@ -213,6 +219,140 @@ describe("AC-B5: contribute_to_brain stores thoughts in brain", () => {
     const sources = parsed.result.sources;
     const thomasSource = sources.find((s: { contributor: string }) => s.contributor === "Thomas Pichler");
     expect(thomasSource).toBeDefined();
+  });
+});
+
+// --- AC-B7: query_brain with include_full_content returns full content ---
+
+describe("AC-B7: query_brain with include_full_content flag", () => {
+  it("returns sources with content field when include_full_content is true", async () => {
+    if (!serverUp) return;
+    const data = await mcpRequest("tools/call", {
+      name: "query_brain",
+      arguments: { prompt: "role separation in multi-agent systems", include_full_content: true },
+    });
+    const result = data.result as { content: Array<{ type: string; text: string }> };
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.result).toHaveProperty("sources");
+    const sources = parsed.result.sources as Array<{ content_preview: string; content?: string }>;
+    expect(sources.length).toBeGreaterThan(0);
+    // With full_content, sources should have a "content" field with more than 80 chars
+    const withContent = sources.filter((s) => s.content && s.content.length > 80);
+    expect(withContent.length).toBeGreaterThan(0);
+  });
+
+  it("still returns 80-char previews when include_full_content is not set", async () => {
+    if (!serverUp) return;
+    const data = await mcpRequest("tools/call", {
+      name: "query_brain",
+      arguments: { prompt: "role separation in multi-agent systems" },
+    });
+    const result = data.result as { content: Array<{ type: string; text: string }> };
+    const parsed = JSON.parse(result.content[0].text);
+    const sources = parsed.result.sources as Array<{ content_preview: string; content?: string }>;
+    expect(sources.length).toBeGreaterThan(0);
+    // Without flag, content field should NOT be present (only content_preview)
+    const withFullContent = sources.filter((s) => s.content !== undefined);
+    expect(withFullContent.length).toBe(0);
+  });
+
+  it("query_brain schema includes include_full_content parameter", async () => {
+    if (!serverUp) return;
+    const data = await mcpRequest("tools/list", {});
+    const result = data.result as { tools: Array<{ name: string; inputSchema: Record<string, unknown> }> };
+    const queryTool = result.tools.find((t) => t.name === "query_brain");
+    expect(queryTool).toBeDefined();
+    const props = queryTool!.inputSchema.properties as Record<string, unknown>;
+    expect(props).toHaveProperty("include_full_content");
+  });
+});
+
+// --- AC-B8: drill_down_thought returns full thought by ID ---
+
+describe("AC-B8: drill_down_thought returns full thought", () => {
+  it("returns complete thought object for valid thought_id", async () => {
+    if (!serverUp) return;
+    // First verify the tool exists
+    const listData = await mcpRequest("tools/list", {});
+    const listResult = listData.result as { tools: Array<{ name: string }> };
+    const hasTool = listResult.tools.some((t) => t.name === "drill_down_thought");
+    expect(hasTool).toBe(true);
+
+    // Get a valid thought_id from a query
+    const queryData = await mcpRequest("tools/call", {
+      name: "query_brain",
+      arguments: { prompt: "coordination patterns" },
+    });
+    const queryResult = queryData.result as { content: Array<{ type: string; text: string }> };
+    const queryParsed = JSON.parse(queryResult.content[0].text);
+    const sources = queryParsed.result.sources as Array<{ thought_id: string }>;
+    expect(sources.length).toBeGreaterThan(0);
+    const thoughtId = sources[0].thought_id;
+
+    // Now drill down
+    const data = await mcpRequest("tools/call", {
+      name: "drill_down_thought",
+      arguments: { thought_id: thoughtId },
+    }, 2);
+    const result = data.result as { content: Array<{ type: string; text: string }> };
+    expect(result.content).toHaveLength(1);
+    expect(result.content[0].type).toBe("text");
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed).toHaveProperty("thought");
+    expect(parsed.thought).toHaveProperty("thought_id", thoughtId);
+    expect(parsed.thought).toHaveProperty("content");
+    expect(typeof parsed.thought.content).toBe("string");
+  });
+});
+
+// --- AC-B9: drill_down_thought with invalid ID returns error ---
+
+describe("AC-B9: drill_down_thought error handling", () => {
+  it("returns error for non-existent thought_id", async () => {
+    if (!serverUp) return;
+    // First verify the tool exists
+    const listData = await mcpRequest("tools/list", {});
+    const listResult = listData.result as { tools: Array<{ name: string }> };
+    const hasTool = listResult.tools.some((t) => t.name === "drill_down_thought");
+    expect(hasTool).toBe(true);
+
+    const data = await mcpRequest("tools/call", {
+      name: "drill_down_thought",
+      arguments: { thought_id: "00000000-0000-0000-0000-000000000000" },
+    });
+    const result = data.result as { content: Array<{ type: string; text: string }>; isError?: boolean };
+    // Should either set isError or include error text
+    const text = result.content[0].text;
+    const isError = result.isError === true || text.toLowerCase().includes("error") || text.toLowerCase().includes("not found");
+    expect(isError).toBe(true);
+  });
+});
+
+// --- AC-B10: tools/list includes drill_down_thought ---
+
+describe("AC-B10: tools/list includes drill_down_thought", () => {
+  it("lists drill_down_thought tool", async () => {
+    if (!serverUp) return;
+    const data = await mcpRequest("tools/list", {});
+    const result = data.result as { tools: Array<{ name: string }> };
+    const names = result.tools.map((t) => t.name);
+    expect(names).toContain("drill_down_thought");
+  });
+
+  it("lists exactly 3 tools", async () => {
+    if (!serverUp) return;
+    const data = await mcpRequest("tools/list", {});
+    const result = data.result as { tools: Array<{ name: string }> };
+    expect(result.tools).toHaveLength(3);
+  });
+
+  it("drill_down_thought requires thought_id parameter", async () => {
+    if (!serverUp) return;
+    const data = await mcpRequest("tools/list", {});
+    const result = data.result as { tools: Array<{ name: string; inputSchema: Record<string, unknown> }> };
+    const drillTool = result.tools.find((t) => t.name === "drill_down_thought");
+    expect(drillTool).toBeDefined();
+    expect(drillTool!.inputSchema.required).toContain("thought_id");
   });
 });
 
