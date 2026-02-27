@@ -25,67 +25,34 @@ When `layer1_enabled` is `false`, skip Step 1.5 (Brain Health) and proceed direc
 
 ---
 
-## Step 0: Brain Context
+## Step 1: Scan Projects + Brain Health
 
-Before scanning databases, query brain for any pending human context (rework notes, verbal decisions):
-
-```bash
-SESSION_ID=$(cat /proc/sys/kernel/random/uuid)
-curl -s -X POST http://localhost:3200/api/v1/memory \
-  -H "Content-Type: application/json" \
-  -d "{\"prompt\": \"Pending context for PM status presentation. Any rework notes or human decisions?\", \"agent_id\": \"agent-liaison\", \"agent_name\": \"LIAISON\", \"session_id\": \"$SESSION_ID\"}"
-```
-
-Read the response. If brain has relevant context (decisions, rework notes), note it for presentation.
-
-## Step 1: Scan All Project DBs
-
-Query all 3 project databases for non-terminal tasks:
+Run the pm-status script to scan all project databases AND get brain health in one command:
 
 ```bash
-CLI=/home/developer/workspaces/github/PichlerThomas/xpollination-mcp-server/src/db/interface-cli.js
-
-for DB in \
-  "/home/developer/workspaces/github/PichlerThomas/best-practices/data/xpollination.db" \
-  "/home/developer/workspaces/github/PichlerThomas/xpollination-mcp-server/data/xpollination.db" \
-  "/home/developer/workspaces/github/PichlerThomas/HomePage/data/xpollination.db"; do
-  echo "=== $(basename $(dirname $(dirname $DB))) ==="
-  DATABASE_PATH="$DB" node $CLI list 2>/dev/null
-done
+node /home/developer/workspaces/github/PichlerThomas/xpollination-mcp-server/viz/pm-status.cjs
 ```
 
-Collect all non-terminal tasks (exclude `complete`, `cancelled`).
+This returns JSON with:
+- `projects`: all tasks from best-practices, xpollination-mcp-server, and HomePage
+- `brain_health`: status, recent thought count, highway count, top domains
 
-## Step 1.5: Brain Health (Layer 1 Gardening)
+Parse and present. Brain health section is always included — no separate step needed.
 
-**Skip this step if `layer1_enabled` is `false`.**
+Collect all non-terminal tasks (exclude `complete`, `cancelled`) from the projects output.
 
-Run the gardener engine skill with `scope=recent depth=shallow` for a read-only diagnostic of brain health. This is a shallow pass — no mutations, no refine, no consolidate. Count, categorize, flag noise, report only.
-
-```
-/xpo.claude.mindspace.garden recent shallow
-```
-
-The gardener engine (`xpo.claude.mindspace.garden`) returns a report with:
-- **New thought count**: how many thoughts were contributed recently
-- **Noise flagged**: keyword echoes, near-duplicates, too-short entries
-- **Domains active**: which topic categories have recent activity
-- **Duplicates flagged**: thought clusters that should be consolidated
-
-Present the gardener output as a **BRAIN HEALTH** section in the PM status:
+Present brain health as a **BRAIN HEALTH** section:
 
 ```
-=== BRAIN HEALTH (diagnostic — shallow, read-only) ===
-Thoughts analyzed: N
-New contributions: N
-Noise flagged: N (keyword echoes, near-duplicates)
-Active domains: domain1, domain2, ...
-Duplicates to consolidate: N
-Status: healthy | needs attention | degraded
+=== BRAIN HEALTH ===
+Status: healthy | empty | unavailable
+Recent thoughts: N
+Highways: N
+Top domains: domain1, domain2, ...
 ===
 ```
 
-This informs Thomas's decisions — it is Study before Act. If brain health shows high noise or many duplicates, Thomas may choose to run a deeper gardening pass (`/xpo.claude.mindspace.garden full deep`).
+If brain health shows issues, Thomas may choose to run a deeper gardening pass (`/xpo.claude.mindspace.garden full deep`).
 
 ## Step 2: Phase 1 — Summary Table
 
