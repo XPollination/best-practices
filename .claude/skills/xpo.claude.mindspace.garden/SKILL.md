@@ -156,6 +156,30 @@ For each discovered thought, assess:
 3. **Flag noise**: keyword echoes, too-short entries, near-duplicate pairs, stale transition markers
 4. **Report** findings as a summary table
 
+### Step 5.5: Retroactive Categorization (scope=full depth=deep only)
+
+Batch categorize uncategorized thoughts. Only runs during full deep gardening passes.
+
+1. Fetch uncategorized thoughts via the API:
+   ```bash
+   curl -s "http://localhost:3200/api/v1/memory/thoughts/uncategorized?limit=50"
+   ```
+
+2. For each uncategorized thought, analyze its content and assign:
+   - `thought_category`: one of state_snapshot, decision_record, operational_learning, task_outcome, correction, transition_marker, design_decision
+   - `topic`: a short domain slug (e.g., "agent-coordination", "brain-quality", "infrastructure")
+
+3. PATCH the metadata via the API (does not modify thought content):
+   ```bash
+   curl -s -X PATCH "http://localhost:3200/api/v1/memory/thought/<thought_id>/metadata" \
+     -H "Content-Type: application/json" \
+     -d '{"thought_category": "<category>", "topic": "<topic>"}'
+   ```
+
+4. Repeat until no more uncategorized thoughts remain (paginate with offset).
+
+If `dry_run=true`: list what categories would be assigned without executing PATCH calls.
+
 ### Step 6: Report (shallow stops here)
 
 If `depth=shallow`:

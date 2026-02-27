@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import crypto from "crypto";
 import { embed } from "../services/embedding.js";
-import { think, retrieve, applyImplicitFeedback, highways, getExistingTags, getThoughtById, getLineage, ThoughtError, type ThoughtCategory, type SourceRef } from "../services/thoughtspace.js";
+import { think, retrieve, applyImplicitFeedback, highways, getExistingTags, getThoughtById, getLineage, updateThoughtMetadata, listUncategorizedThoughts, ThoughtError, type ThoughtCategory, type SourceRef } from "../services/thoughtspace.js";
 import { getAgentQueryCount, getSessionReturnedIds, getRecentQueriesByAgent } from "../services/database.js";
 
 // --- Contribution Threshold (Section 3.5) ---
@@ -513,4 +513,57 @@ export async function memoryRoutes(app: FastifyInstance): Promise<void> {
       },
     });
   });
+
+  // Metadata update endpoint (for retroactive categorization)
+  app.patch<{ Params: { id: string }; Body: { thought_category?: string; topic?: string } }>(
+    "/api/v1/memory/thought/:id/metadata",
+    async (request, reply) => {
+      const { id } = request.params;
+      const { thought_category, topic } = request.body ?? {};
+
+      if (!thought_category && topic === undefined) {
+        return reply.status(400).send({
+          error: { code: "VALIDATION_ERROR", message: "At least one field (thought_category, topic) is required" },
+        });
+      }
+
+      try {
+        const updated = await updateThoughtMetadata(id, { thought_category, topic });
+        if (!updated) {
+          return reply.status(404).send({
+            error: { code: "THOUGHT_NOT_FOUND", message: `Thought ${id} not found` },
+          });
+        }
+        return reply.send({ success: true, thought_id: id });
+      } catch (err) {
+        if (err instanceof ThoughtError && err.code === "VALIDATION_ERROR") {
+          return reply.status(400).send({
+            error: { code: err.code, message: err.message },
+          });
+        }
+        return reply.status(500).send({
+          error: { code: "INTERNAL_ERROR", message: "Failed to update metadata" },
+        });
+      }
+    },
+  );
+
+  // List uncategorized thoughts (for gardener batch categorization)
+  app.get<{ Querystring: { limit?: string; offset?: string } }>(
+    "/api/v1/memory/thoughts/uncategorized",
+    async (request, reply) => {
+      const limit = Math.min(parseInt(request.query.limit ?? "20", 10) || 20, 100);
+      const rawOffset = request.query.offset;
+      const offset = rawOffset ? (isNaN(Number(rawOffset)) ? rawOffset : Number(rawOffset)) : undefined;
+
+      try {
+        const result = await listUncategorizedThoughts(limit, offset);
+        return reply.send(result);
+      } catch (err) {
+        return reply.status(500).send({
+          error: { code: "INTERNAL_ERROR", message: "Failed to list uncategorized thoughts" },
+        });
+      }
+    },
+  );
 }

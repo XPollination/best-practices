@@ -84,7 +84,7 @@ export async function ensureThoughtSpace(): Promise<void> {
 
 // --- Types ---
 
-export type ThoughtCategory = "state_snapshot" | "decision_record" | "operational_learning" | "task_outcome" | "correction" | "uncategorized";
+export type ThoughtCategory = "state_snapshot" | "decision_record" | "operational_learning" | "task_outcome" | "correction" | "uncategorized" | "transition_marker" | "design_decision";
 
 export interface SourceRef {
   type: "task" | "file" | "commit" | "url";
@@ -728,6 +728,69 @@ async function getThoughtsByIds(thoughtIds: string[]): Promise<Record<string, un
   } catch {
     return [];
   }
+}
+
+// --- Metadata update (for retroactive categorization) ---
+
+const VALID_CATEGORIES: ThoughtCategory[] = [
+  "state_snapshot", "decision_record", "operational_learning", "task_outcome",
+  "correction", "uncategorized", "transition_marker", "design_decision",
+];
+
+export async function updateThoughtMetadata(
+  thoughtId: string,
+  fields: { thought_category?: string; topic?: string },
+): Promise<boolean> {
+  const existing = await getThoughtById(thoughtId);
+  if (!existing) return false;
+
+  if (fields.thought_category && !VALID_CATEGORIES.includes(fields.thought_category as ThoughtCategory)) {
+    throw new ThoughtError("VALIDATION_ERROR", `Invalid thought_category: ${fields.thought_category}`);
+  }
+
+  const payload: Record<string, unknown> = {};
+  if (fields.thought_category) payload.thought_category = fields.thought_category;
+  if (fields.topic !== undefined) payload.topic = fields.topic;
+
+  await client.setPayload(COLLECTION, {
+    points: [thoughtId],
+    payload,
+    wait: true,
+  });
+
+  return true;
+}
+
+export async function listUncategorizedThoughts(
+  limit: number = 20,
+  offset?: string | number,
+): Promise<{ thoughts: Array<{ thought_id: string; content_preview: string; thought_category: string; topic: string | null }>; next_offset: string | number | null }> {
+  const scrollResult = await client.scroll(COLLECTION, {
+    filter: {
+      must: [
+        { key: "thought_category", match: { value: "uncategorized" } },
+      ],
+    },
+    limit,
+    with_payload: true,
+    with_vector: false,
+    ...(offset !== undefined ? { offset } : {}),
+  });
+
+  const thoughts = scrollResult.points.map((p) => {
+    const pay = p.payload as Record<string, unknown>;
+    return {
+      thought_id: String(p.id),
+      content_preview: ((pay.content as string) ?? "").substring(0, 200),
+      thought_category: (pay.thought_category as string) ?? "uncategorized",
+      topic: (pay.topic as string) ?? null,
+    };
+  });
+
+  return {
+    thoughts,
+    next_offset: scrollResult.next_page_offset ?? null,
+  };
 }
 
 // --- getRefiningThoughts() — batch lookup for superseded marking ---
