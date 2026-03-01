@@ -55,17 +55,17 @@ SESSION_ID=$(cat /proc/sys/kernel/random/uuid)
 # Query 1: Your role and recovery knowledge
 curl -s -X POST http://localhost:3200/api/v1/memory \
   -H "Content-Type: application/json" \
-  -d "{\"prompt\": \"Recovery protocol and role definition for $ARGUMENTS agent. What are my responsibilities and what are the latest operational learnings?\", \"agent_id\": \"agent-$ARGUMENTS\", \"agent_name\": \"$(echo $ARGUMENTS | tr a-z A-Z)\", \"session_id\": \"$SESSION_ID\"}"
+  -d "{\"prompt\": \"Recovery protocol and role definition for $ARGUMENTS agent. What are my responsibilities and what are the latest operational learnings?\", \"agent_id\": \"agent-$ARGUMENTS\", \"agent_name\": \"$(echo $ARGUMENTS | tr a-z A-Z)\", \"session_id\": \"$SESSION_ID\", \"read_only\": true}"
 
 # Query 2: Current task state and recent decisions
 curl -s -X POST http://localhost:3200/api/v1/memory \
   -H "Content-Type: application/json" \
-  -d "{\"prompt\": \"Current task state, recent decisions, and in-flight work across all projects\", \"agent_id\": \"agent-$ARGUMENTS\", \"agent_name\": \"$(echo $ARGUMENTS | tr a-z A-Z)\", \"session_id\": \"$SESSION_ID\"}"
+  -d "{\"prompt\": \"Current task state, recent decisions, and in-flight work across all projects\", \"agent_id\": \"agent-$ARGUMENTS\", \"agent_name\": \"$(echo $ARGUMENTS | tr a-z A-Z)\", \"session_id\": \"$SESSION_ID\", \"read_only\": true}"
 
 # Query 3: In-flight task recovery (transition markers)
 curl -s -X POST http://localhost:3200/api/v1/memory \
   -H "Content-Type: application/json" \
-  -d "{\"prompt\": \"TASK START or TASK BLOCKED markers for $(echo $ARGUMENTS | tr a-z A-Z) agent — any interrupted or in-progress tasks\", \"agent_id\": \"agent-$ARGUMENTS\", \"agent_name\": \"$(echo $ARGUMENTS | tr a-z A-Z)\", \"session_id\": \"$SESSION_ID\"}"
+  -d "{\"prompt\": \"TASK START or TASK BLOCKED markers for $(echo $ARGUMENTS | tr a-z A-Z) agent — any interrupted or in-progress tasks\", \"agent_id\": \"agent-$ARGUMENTS\", \"agent_name\": \"$(echo $ARGUMENTS | tr a-z A-Z)\", \"session_id\": \"$SESSION_ID\", \"read_only\": true}"
 ```
 
 **Read the results.** Memory returns `result.sources` (knowledge) and `result.highways_nearby` (most-trafficked paths). Use these to understand your situation.

@@ -48,7 +48,8 @@ const queryData = JSON.stringify({
   prompt: `Context for ${agentName} agent: ${prompt.slice(0, 500)}`,
   agent_id: agentId,
   agent_name: agentName,
-  session_id: sessionId
+  session_id: sessionId,
+  read_only: true
 });
 
 const req = http.request("http://localhost:3200/api/v1/memory", {
