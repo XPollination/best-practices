@@ -192,9 +192,12 @@ async function handleMemoryRequest(params: MemoryRequest, reply: import("fastify
     const qualityAssessment = assessContributionQuality(prompt.trim(), { thought_category }, recentQueries);
     let contributionQualityFlags: string[] = [];
 
-    const isKeywordEcho = qualityAssessment.flags.includes("keyword_echo");
+    // keyword_echo is now a quality flag only, not a storage gate.
+    // Bug fix 2026-03-01: keyword_echo falsely blocked valid MCP contributions because
+    // brain-first hook queries + hardcoded agent_id caused >60% word overlap on same-topic
+    // query→contribute workflows. Gardener can use the flag for curation, but storage proceeds.
 
-    if (thresholdMet && (!isKeywordEcho || isExplicitIteration)) {
+    if (thresholdMet) {
       try {
         // Tag extraction (Section 3.8): match prompt against existing tags
         const existingTags = await getExistingTags();
