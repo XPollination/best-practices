@@ -96,14 +96,25 @@ interface MemoryRequest {
   // Retrieval options
   full_content?: boolean;
   read_only?: boolean;
+  // Multi-user routing: private (default) or shared space
+  space?: "private" | "shared";
 }
 
-async function handleMemoryRequest(params: MemoryRequest, reply: import("fastify").FastifyReply) {
+function resolveCollection(space: "private" | "shared" | undefined, user: { qdrant_collection?: string } | undefined): string {
+  if (space === "shared") return "thought_space_shared";
+  // Default space is private — use user's qdrant_collection or fallback
+  return user?.qdrant_collection || "thought_space";
+}
+
+async function handleMemoryRequest(params: MemoryRequest, reply: import("fastify").FastifyReply, user?: { qdrant_collection?: string }) {
   const {
     prompt, agent_id, agent_name, context, session_id, refines, consolidates,
     thought_category, topic, temporal_scope, source_ref, alternatives_considered,
-    corrected_fact, correct_fact, supersedes, full_content, read_only,
+    corrected_fact, correct_fact, supersedes, full_content, read_only, space,
   } = params;
+
+  // Resolve collection from user context and space parameter
+  const collection = resolveCollection(space, user);
 
     // Step 1: Validate request (Section 3.3)
     if (!prompt || typeof prompt !== "string" || prompt.trim().length === 0) {
@@ -224,6 +235,7 @@ async function handleMemoryRequest(params: MemoryRequest, reply: import("fastify
           thought_type,
           source_ids,
           tags: extractedTags,
+          collection,
           context_metadata: context ?? undefined,
           // Brain contribution quality fields
           thought_category: thought_category ?? "uncategorized",
@@ -270,6 +282,7 @@ async function handleMemoryRequest(params: MemoryRequest, reply: import("fastify
         query_embedding: queryEmbedding,
         agent_id,
         session_id: sessionId,
+        collection,
         limit: 10,
         filter_tags: [],
         query_text: prompt.trim(),
@@ -343,6 +356,7 @@ async function handleMemoryRequest(params: MemoryRequest, reply: import("fastify
           query_embedding: queryEmbedding,
           agent_id,
           session_id: sessionId,
+          collection,
           limit: 5,
         });
         for (const cr of correctionResults) {
@@ -470,11 +484,13 @@ async function handleMemoryRequest(params: MemoryRequest, reply: import("fastify
 
 export async function memoryRoutes(app: FastifyInstance): Promise<void> {
   app.post<{ Body: MemoryRequest }>("/api/v1/memory", async (request, reply) => {
-    return handleMemoryRequest(request.body, reply);
+    const user = (request as any).user as { qdrant_collection?: string } | undefined;
+    return handleMemoryRequest(request.body, reply, user);
   });
 
   app.get<{ Querystring: MemoryRequest }>("/api/v1/memory", async (request, reply) => {
-    return handleMemoryRequest(request.query as MemoryRequest, reply);
+    const user = (request as any).user as { qdrant_collection?: string } | undefined;
+    return handleMemoryRequest(request.query as MemoryRequest, reply, user);
   });
 
   // Full-content drill-down endpoint

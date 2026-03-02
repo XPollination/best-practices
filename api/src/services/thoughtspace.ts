@@ -100,6 +100,7 @@ export interface ThinkParams {
   thought_type: "original" | "refinement" | "consolidation";
   source_ids: string[];
   tags: string[];
+  collection?: string;
   context_metadata?: string;
   // Brain contribution quality fields (all optional, backward compatible)
   thought_category?: ThoughtCategory;
@@ -124,6 +125,7 @@ export interface RetrieveParams {
   query_embedding: number[];
   agent_id: string;
   session_id: string;
+  collection?: string;
   limit?: number;
   filter_tags?: string[];
   query_text?: string;
@@ -167,6 +169,7 @@ export interface LineageNode {
 // --- think() — Section 4.1 ---
 
 export async function think(params: ThinkParams): Promise<ThinkResult> {
+  const collection = params.collection || COLLECTION;
   // Validate
   if (!params.content || params.content.trim().length === 0) {
     throw new ThoughtError("VALIDATION_ERROR", "content is required and must be a non-empty string");
@@ -253,7 +256,7 @@ export async function think(params: ThinkParams): Promise<ThinkResult> {
   };
 
   try {
-    await client.upsert(COLLECTION, {
+    await client.upsert(collection, {
       wait: true,
       points: [{ id: thoughtId, vector, payload }],
     });
@@ -265,7 +268,7 @@ export async function think(params: ThinkParams): Promise<ThinkResult> {
   if (params.thought_category === "correction" && params.supersedes && params.supersedes.length > 0) {
     for (const supersededId of params.supersedes) {
       try {
-        await client.setPayload(COLLECTION, {
+        await client.setPayload(collection, {
           points: [supersededId],
           payload: { superseded_by_correction: true },
           wait: true,
@@ -280,7 +283,7 @@ export async function think(params: ThinkParams): Promise<ThinkResult> {
   if (params.thought_type === "consolidation" && params.source_ids && params.source_ids.length > 0) {
     for (const sourceId of params.source_ids) {
       try {
-        await client.setPayload(COLLECTION, {
+        await client.setPayload(collection, {
           points: [sourceId],
           payload: { superseded_by_consolidation: true },
           wait: true,
@@ -297,6 +300,7 @@ export async function think(params: ThinkParams): Promise<ThinkResult> {
 // --- retrieve() — Section 4.2 (Phase 2: full access tracking + pheromone) ---
 
 export async function retrieve(params: RetrieveParams): Promise<RetrieveResult[]> {
+  const collection = params.collection || COLLECTION;
   const limit = params.limit ?? 10;
   const sessionId = params.session_id || crypto.randomUUID();
   const now = new Date().toISOString();
@@ -316,7 +320,7 @@ export async function retrieve(params: RetrieveParams): Promise<RetrieveResult[]
 
   let results;
   try {
-    results = await client.search(COLLECTION, {
+    results = await client.search(collection, {
       vector: params.query_embedding,
       limit,
       with_payload: true,
@@ -375,7 +379,7 @@ export async function retrieve(params: RetrieveParams): Promise<RetrieveResult[]
 
     // Upsert updated payload fields
     try {
-      await client.setPayload(COLLECTION, {
+      await client.setPayload(collection, {
         points: [pointId],
         payload: {
           access_count: accessCount,
@@ -500,44 +504,52 @@ export async function retrieve(params: RetrieveParams): Promise<RetrieveResult[]
 // --- Pheromone Decay Job — Section 6, 8 ---
 
 export async function runPheromoneDecay(): Promise<number> {
+  // Discover all thought_space* collections for multi-user decay
+  const allCollections = await client.getCollections();
+  const targetCollections = allCollections.collections
+    .map((c) => c.name)
+    .filter((n) => n.startsWith("thought_space"));
+
   const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
   let updated = 0;
-  let offset: string | number | undefined = undefined;
 
-  // Scroll through all points where last_accessed < 1 hour ago
-  while (true) {
-    const scrollResult = await client.scroll(COLLECTION, {
-      filter: {
-        must: [
-          {
-            key: "last_accessed",
-            range: { lt: oneHourAgo },
-          },
-        ],
-      },
-      limit: 100,
-      with_payload: true,
-      with_vector: false,
-      offset,
-    });
+  for (const col of targetCollections) {
+    let offset: string | number | undefined = undefined;
 
-    for (const point of scrollResult.points) {
-      const p = point.payload as Record<string, unknown>;
-      const currentWeight = (p.pheromone_weight as number) ?? 1.0;
-      const decayedWeight = Math.max(0.1, currentWeight * 0.995);
+    while (true) {
+      const scrollResult = await client.scroll(col, {
+        filter: {
+          must: [
+            {
+              key: "last_accessed",
+              range: { lt: oneHourAgo },
+            },
+          ],
+        },
+        limit: 100,
+        with_payload: true,
+        with_vector: false,
+        offset,
+      });
 
-      if (decayedWeight !== currentWeight) {
-        await client.setPayload(COLLECTION, {
-          points: [String(point.id)],
-          payload: { pheromone_weight: decayedWeight },
-          wait: true,
-        });
-        updated++;
+      for (const point of scrollResult.points) {
+        const p = point.payload as Record<string, unknown>;
+        const currentWeight = (p.pheromone_weight as number) ?? 1.0;
+        const decayedWeight = Math.max(0.1, currentWeight * 0.995);
+
+        if (decayedWeight !== currentWeight) {
+          await client.setPayload(col, {
+            points: [String(point.id)],
+            payload: { pheromone_weight: decayedWeight },
+            wait: true,
+          });
+          updated++;
+        }
       }
-    }
 
-    if (!scrollResult.next_page_offset) break;
-    offset = scrollResult.next_page_offset;
+      if (!scrollResult.next_page_offset) break;
+      offset = scrollResult.next_page_offset;
+    }
   }
 
   return updated;
