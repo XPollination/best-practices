@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import crypto from "crypto";
 import { embed } from "../services/embedding.js";
-import { think, retrieve, applyImplicitFeedback, highways, getExistingTags, getThoughtById, getLineage, updateThoughtMetadata, listUncategorizedThoughts, listDomainSummaries, ThoughtError, type ThoughtCategory, type SourceRef } from "../services/thoughtspace.js";
+import { think, retrieve, applyImplicitFeedback, highways, getExistingTags, getThoughtById, getLineage, updateThoughtMetadata, listUncategorizedThoughts, listDomainSummaries, shareThought, ThoughtError, type ThoughtCategory, type SourceRef } from "../services/thoughtspace.js";
 import { getAgentQueryCount, getSessionReturnedIds, getRecentQueriesByAgent } from "../services/database.js";
 
 // --- Contribution Threshold (Section 3.5) ---
@@ -424,7 +424,7 @@ async function handleMemoryRequest(params: MemoryRequest, reply: import("fastify
       thought_id: r.thought_id,
       contributor: r.contributor_name,
       score: parseFloat(r.score.toFixed(2)),
-      content_preview: r.content.substring(0, 80),
+      content_preview: r.content.substring(0, 120),
       ...(full_content ? { content: r.content } : {}),
       refined_by: r.refined_by ?? null,
       superseded: r.superseded ?? false,
@@ -608,4 +608,44 @@ export async function memoryRoutes(app: FastifyInstance): Promise<void> {
       }
     },
   );
+
+  // Share thought from private to shared space
+  app.post<{ Body: { thought_id?: string } }>("/api/v1/memory/share", async (request, reply) => {
+    const user = (request as any).user as { user_id: string; qdrant_collection: string } | undefined;
+    if (!user) {
+      return reply.status(401).send({ error: "Unauthorized" });
+    }
+
+    const { thought_id } = request.body ?? {};
+    if (!thought_id || typeof thought_id !== "string") {
+      return reply.status(400).send({ error: "thought_id is required" });
+    }
+
+    try {
+      const result = await shareThought({
+        thoughtId: thought_id,
+        userId: user.user_id,
+        sourceCollection: user.qdrant_collection,
+      });
+      return reply.send({
+        success: true,
+        shared_thought_id: result.shared_thought_id,
+        shared_at: result.shared_at,
+      });
+    } catch (err) {
+      if (err instanceof ThoughtError) {
+        if (err.code === "NOT_FOUND") {
+          return reply.status(404).send({ error: err.message });
+        }
+        if (err.code === "FORBIDDEN") {
+          return reply.status(403).send({ error: err.message });
+        }
+        if (err.code === "DUPLICATE") {
+          return reply.status(409).send({ error: err.message });
+        }
+        return reply.status(500).send({ error: err.message });
+      }
+      return reply.status(500).send({ error: "Failed to share thought" });
+    }
+  });
 }

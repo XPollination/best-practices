@@ -1084,6 +1084,122 @@ export async function getLineage(thoughtId: string, maxDepth: number = 10): Prom
   return { thought_id: thoughtId, chain, truncated };
 }
 
+// --- shareThought() — Multi-user sharing ---
+
+export interface ShareThoughtParams {
+  thoughtId: string;
+  userId: string;
+  sourceCollection: string;
+}
+
+export interface ShareThoughtResult {
+  shared_thought_id: string;
+  shared_at: string;
+}
+
+export async function shareThought(params: ShareThoughtParams): Promise<ShareThoughtResult> {
+  const { thoughtId, userId, sourceCollection } = params;
+  const SHARED_COLLECTION = "thought_space_shared";
+
+  // 1. Retrieve thought from user's private collection (with vector for copying)
+  let points;
+  try {
+    points = await client.retrieve(sourceCollection, {
+      ids: [thoughtId],
+      with_payload: true,
+      with_vector: true,
+    });
+  } catch {
+    throw new ThoughtError("QDRANT_ERROR", `Failed to retrieve thought from ${sourceCollection}`);
+  }
+
+  if (points.length === 0) {
+    throw new ThoughtError("NOT_FOUND", `Thought ${thoughtId} not found in ${sourceCollection}`);
+  }
+
+  const point = points[0];
+  const payload = point.payload as Record<string, unknown>;
+
+  // 2. Ownership check: contributor_id must match caller's user_id
+  const contributorId = (payload.contributor_id as string) ?? "";
+  if (contributorId !== userId) {
+    // 403 — caller is not the contributor
+    throw new ThoughtError("FORBIDDEN", `Thought ${thoughtId} belongs to ${contributorId}, not ${userId}`);
+  }
+
+  // 3. Duplicate check: already shared?
+  if (payload.shared_to) {
+    throw new ThoughtError("DUPLICATE", `Thought ${thoughtId} was already shared to ${payload.shared_to}`);
+  }
+
+  // 4. Generate new ID and timestamp
+  const sharedThoughtId = uuidv4();
+  const sharedAt = new Date().toISOString();
+
+  // 5. Build shared payload: copy content + attribution, add sharing metadata, fresh lifecycle
+  const sharedPayload: Record<string, unknown> = {
+    content: payload.content,
+    contributor_id: payload.contributor_id,
+    contributor_name: payload.contributor_name,
+    thought_type: payload.thought_type ?? "original",
+    source_ids: payload.source_ids ?? [],
+    tags: payload.tags ?? [],
+    context_metadata: payload.context_metadata ?? null,
+    thought_category: payload.thought_category ?? "uncategorized",
+    topic: payload.topic ?? null,
+    temporal_scope: payload.temporal_scope ?? null,
+    source_ref: payload.source_ref ?? null,
+    alternatives_considered: payload.alternatives_considered ?? null,
+    quality_flags: payload.quality_flags ?? [],
+    knowledge_space_id: "ks-default",
+    created_at: sharedAt,
+    // Sharing metadata
+    shared_from_id: thoughtId,
+    shared_from_collection: sourceCollection,
+    shared_by: userId,
+    shared_at: sharedAt,
+    // Independent lifecycle
+    pheromone_weight: 1.0,
+    access_count: 0,
+    last_accessed: null,
+    accessed_by: [],
+    access_log: [],
+    co_retrieved_with: [],
+    superseded_by_consolidation: false,
+    superseded_by_correction: false,
+  };
+
+  // 6. Get vector from the original point
+  const vector = point.vector as number[];
+
+  // 7. Upsert to shared collection
+  try {
+    await client.upsert(SHARED_COLLECTION, {
+      wait: true,
+      points: [{ id: sharedThoughtId, vector, payload: sharedPayload }],
+    });
+  } catch (err) {
+    throw new ThoughtError("QDRANT_ERROR", `Failed to upsert shared thought: ${err}`);
+  }
+
+  // 8. Mark original with sharing metadata
+  try {
+    await client.setPayload(sourceCollection, {
+      points: [thoughtId],
+      payload: {
+        shared_to: SHARED_COLLECTION,
+        shared_copy_id: sharedThoughtId,
+        shared_at: sharedAt,
+      },
+      wait: true,
+    });
+  } catch (err) {
+    console.error(`Failed to mark original thought ${thoughtId} as shared:`, err);
+  }
+
+  return { shared_thought_id: sharedThoughtId, shared_at: sharedAt };
+}
+
 // --- Error class ---
 
 export class ThoughtError extends Error {
