@@ -520,20 +520,20 @@ export async function memoryRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // Metadata update endpoint (for retroactive categorization)
-  app.patch<{ Params: { id: string }; Body: { thought_category?: string; topic?: string } }>(
+  app.patch<{ Params: { id: string }; Body: { thought_category?: string; topic?: string; superseded_by_correction?: boolean } }>(
     "/api/v1/memory/thought/:id/metadata",
     async (request, reply) => {
       const { id } = request.params;
-      const { thought_category, topic } = request.body ?? {};
+      const { thought_category, topic, superseded_by_correction } = request.body ?? {};
 
-      if (!thought_category && topic === undefined) {
+      if (!thought_category && topic === undefined && superseded_by_correction === undefined) {
         return reply.status(400).send({
-          error: { code: "VALIDATION_ERROR", message: "At least one field (thought_category, topic) is required" },
+          error: { code: "VALIDATION_ERROR", message: "At least one field (thought_category, topic, superseded_by_correction) is required" },
         });
       }
 
       try {
-        const updated = await updateThoughtMetadata(id, { thought_category, topic });
+        const updated = await updateThoughtMetadata(id, { thought_category, topic, superseded_by_correction });
         if (!updated) {
           return reply.status(404).send({
             error: { code: "THOUGHT_NOT_FOUND", message: `Thought ${id} not found` },

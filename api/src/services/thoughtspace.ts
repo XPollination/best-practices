@@ -810,7 +810,7 @@ const VALID_CATEGORIES: ThoughtCategory[] = [
 
 export async function updateThoughtMetadata(
   thoughtId: string,
-  fields: { thought_category?: string; topic?: string },
+  fields: { thought_category?: string; topic?: string; superseded_by_correction?: boolean },
 ): Promise<boolean> {
   const existing = await getThoughtById(thoughtId);
   if (!existing) return false;
@@ -822,6 +822,7 @@ export async function updateThoughtMetadata(
   const payload: Record<string, unknown> = {};
   if (fields.thought_category) payload.thought_category = fields.thought_category;
   if (fields.topic !== undefined) payload.topic = fields.topic;
+  if (fields.superseded_by_correction !== undefined) payload.superseded_by_correction = fields.superseded_by_correction;
 
   await client.setPayload(COLLECTION, {
     points: [thoughtId],
