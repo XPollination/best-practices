@@ -85,7 +85,7 @@ export async function ensureThoughtSpace(): Promise<void> {
 
 // --- Types ---
 
-export type ThoughtCategory = "state_snapshot" | "decision_record" | "operational_learning" | "task_outcome" | "correction" | "uncategorized" | "transition_marker" | "design_decision" | "domain_summary";
+export type ThoughtCategory = "state_snapshot" | "decision_record" | "operational_learning" | "task_outcome" | "correction" | "uncategorized" | "transition_marker" | "design_decision" | "domain_summary" | "noise";
 
 export interface SourceRef {
   type: "task" | "file" | "commit" | "url";
@@ -805,7 +805,7 @@ async function getThoughtsByIds(thoughtIds: string[]): Promise<Record<string, un
 
 const VALID_CATEGORIES: ThoughtCategory[] = [
   "state_snapshot", "decision_record", "operational_learning", "task_outcome",
-  "correction", "uncategorized", "transition_marker", "design_decision", "domain_summary",
+  "correction", "uncategorized", "transition_marker", "design_decision", "domain_summary", "noise",
 ];
 
 export async function updateThoughtMetadata(
