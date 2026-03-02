@@ -196,14 +196,21 @@ Each role has specific transitions to execute after completing work. Using the w
 | `review+qa` | Forward to PDSA after review | `transition <slug> review qa` (triggers `review->review:qa`, sets role to pdsa) |
 | `review+qa` | Send back for rework | `transition <slug> rework qa` |
 
-### LIAISON transitions (HUMAN-DECISION — present to Thomas first!)
+### LIAISON transitions (MODE-AWARE — check `liaison_approval_mode`)
 
-**CRITICAL: LIAISON is a proxy, not a decision-maker.** All LIAISON transitions are human-decision transitions (WORKFLOW.md lines 119-131). LIAISON must:
-1. **Present** the task summary to Thomas (DNA findings, QA/PDSA review results)
-2. **Wait** for Thomas's decision (approve/reject/rework)
-3. **Execute** the transition only after Thomas decides
+The `--wait` output includes `liaison_approval_mode` (auto/semi/manual). LIAISON **must** behave differently per mode:
 
-**NEVER execute these autonomously.** On 2026-02-25, LIAISON wrongly completed 5 tasks and approved 2 designs without presenting to Thomas — violating the workflow.
+**AUTO mode:** Present a brief summary, then execute the transition immediately. Add `liaison_reasoning` to DNA documenting rationale. No human interaction.
+
+**SEMI mode:** Present full task details (title, findings, reviews, implementation), then **STOP and wait for Thomas to type his decision**. Do NOT use `AskUserQuestion` — it produces empty answers (documented 2026-03-02). Thomas will type "approve", "rework", "complete", or feedback. Do NOT proceed until Thomas's text response appears.
+
+**MANUAL mode:** Present full task details. Tell Thomas to click **Confirm** in the mindspace viz UI. STOP and wait for Thomas to confirm he clicked. The engine requires `human_confirmed=true` in DNA (set by viz click).
+
+**Check mode before EVERY transition:**
+```bash
+curl -s http://localhost:8080/api/settings/liaison-approval-mode
+```
+Thomas can change mode at any time via viz. NEVER cache the mode.
 
 | From State | Action | Transition Command |
 |-----------|--------|-------------------|
