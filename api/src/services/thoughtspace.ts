@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from "uuid";
 import crypto from "crypto";
 import { embed, EMBEDDING_DIM } from "./embedding.js";
 import { insertQueryLog } from "./database.js";
+import { SCORING_CONFIG } from "../scoring-config.js";
 
 const COLLECTION = "thought_space";
 const client = new QdrantClient({ url: "http://localhost:6333" });
@@ -410,33 +411,39 @@ export async function retrieve(params: RetrieveParams): Promise<RetrieveResult[]
   // Score adjustments
   for (const m of mapped) {
     if (m.superseded) {
-      m.score *= 0.7; // 30% penalty for superseded by refinement
+      m.score *= SCORING_CONFIG.supersededByRefinement;
     }
 
     const thoughtPayload = results.find((r) => String(r.id) === m.thought_id)?.payload as Record<string, unknown> | undefined;
     if (thoughtPayload) {
-      // Hard penalty for correction-superseded thoughts (-50%)
+      // Hard penalty for correction-superseded thoughts
       if (thoughtPayload.superseded_by_correction === true) {
-        m.score *= 0.5;
+        m.score *= SCORING_CONFIG.supersededByCorrection;
         m.superseded = true;
       }
 
-      // Boost for correction thoughts (+30%)
+      // Boost for correction thoughts
       if ((thoughtPayload.thought_category as string) === "correction") {
-        m.score = Math.min(1.0, m.score * 1.3);
+        m.score = Math.min(1.0, m.score * SCORING_CONFIG.correctionCategory);
       }
 
-      // Penalty for keyword_echo flagged thoughts (-20%)
+      // Penalty for keyword_echo flagged thoughts (contribution-time detection)
       const flags = (thoughtPayload.quality_flags as string[]) ?? [];
       if (flags.includes("keyword_echo")) {
-        m.score *= 0.8;
+        m.score *= SCORING_CONFIG.keywordEchoFlag;
+      }
+
+      // Stronger penalty for gardener-confirmed keyword echoes
+      const topic = (thoughtPayload.topic as string) ?? "";
+      if (topic === "keyword-echo") {
+        m.score *= SCORING_CONFIG.keywordEchoTopic;
       }
 
       // Check if this thought is a refinement of a superseded thought in the result set
       const sourceIds = (thoughtPayload.source_ids as string[]) ?? [];
       const thoughtType = (thoughtPayload.thought_type as string) ?? "original";
       if ((thoughtType === "refinement" || thoughtType === "consolidation") && sourceIds.some((sid) => supersededIds.has(sid))) {
-        m.score = Math.min(1.0, m.score * 1.2); // 20% boost, capped at 1.0
+        m.score = Math.min(1.0, m.score * SCORING_CONFIG.refinementOfSuperseded);
       }
     }
   }
