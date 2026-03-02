@@ -83,29 +83,37 @@ IN PIPELINE (no action needed now):
 
 For each task in DECISIONS NEEDED + REVIEWS PENDING (ordered by category, then updated_at):
 
-1. **Get full DNA:**
+1. **Check current LIAISON approval mode BEFORE each task:**
+   ```bash
+   curl -s http://localhost:8080/api/settings/liaison-approval-mode
+   ```
+   Thomas can change the mode at any time via the viz. NEVER cache or assume the mode — always check fresh before each decision.
+
+2. **Get full DNA:**
    ```bash
    DATABASE_PATH=$DB node $CLI get <slug>
    ```
 
-2. **Present to Thomas:**
+3. **Present to Thomas:**
    - Title and project
    - Action type: "Approve or Rework?" / "Complete or Rework?"
    - Key DNA fields: `findings`, `implementation`, `qa_review`, `pdsa_review`, `qa_design_review`
    - Review chain trail (who reviewed, who passed)
 
-3. **WAIT for Thomas's decision as plain text input.**
-   Do NOT use AskUserQuestion — it produces false positives (returns empty answers without human interaction, documented 2026-03-02).
-   Present the task details, then STOP and wait for Thomas to type his decision.
-   Thomas will reply with "approve", "rework", "complete", or give specific feedback.
-   Do NOT assume any answer. Do NOT proceed until Thomas's actual text response appears.
+4. **Behave according to current mode:**
 
-4. **Execute the transition** based on Thomas's typed decision:
+   **AUTO mode:** Execute the transition immediately after presenting. Add `liaison_reasoning` to DNA documenting the decision rationale. No human interaction needed.
+
+   **SEMI mode:** Present the task details, then STOP and wait for Thomas to type his decision. Do NOT use AskUserQuestion — it produces false positives (documented 2026-03-02). Thomas will reply with "approve", "rework", "complete", or give specific feedback. Do NOT assume any answer. Do NOT proceed until Thomas's actual text response appears.
+
+   **MANUAL mode:** Present the task details. Tell Thomas to click Confirm in the mindspace viz. STOP and wait for Thomas to confirm he has clicked. Then execute the transition.
+
+5. **Execute the transition** based on decision:
    - Approve: `DATABASE_PATH=$DB node $CLI transition <slug> approved liaison`
    - Complete: `DATABASE_PATH=$DB node $CLI transition <slug> complete liaison`
    - Rework: `DATABASE_PATH=$DB node $CLI transition <slug> rework liaison`
 
-5. **Only then** present the next task.
+6. **Only then** present the next task.
 
 **CRITICAL: Never present all task details at once.** The summary is the map. Phase 2 is the decision flow — one task at a time.
 
