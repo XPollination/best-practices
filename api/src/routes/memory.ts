@@ -165,9 +165,9 @@ async function handleMemoryRequest(params: MemoryRequest, reply: import("fastify
       });
     }
 
-    // Validate referenced thoughts exist
+    // Validate referenced thoughts exist (search in the target collection)
     if (refines) {
-      const sourceThought = await getThoughtById(refines);
+      const sourceThought = await getThoughtById(refines, collection);
       if (!sourceThought) {
         return reply.status(404).send({
           error: { code: "THOUGHT_NOT_FOUND", message: `Thought ${refines} not found` },
@@ -176,7 +176,7 @@ async function handleMemoryRequest(params: MemoryRequest, reply: import("fastify
     }
     if (consolidates) {
       for (const id of consolidates) {
-        const sourceThought = await getThoughtById(id);
+        const sourceThought = await getThoughtById(id, collection);
         if (!sourceThought) {
           return reply.status(404).send({
             error: { code: "THOUGHT_NOT_FOUND", message: `Thought ${id} not found` },

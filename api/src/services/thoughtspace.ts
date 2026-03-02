@@ -212,13 +212,13 @@ export async function think(params: ThinkParams): Promise<ThinkResult> {
   // Pheromone inheritance (Section 4.1)
   let initialWeight = 1.0;
   if (params.thought_type === "refinement" && params.source_ids.length > 0) {
-    const source = await getThoughtById(params.source_ids[0]);
+    const source = await getThoughtById(params.source_ids[0], collection);
     if (source) {
       const sourceWeight = (source.pheromone_weight as number) ?? 1.0;
       initialWeight = Math.max(1.0, sourceWeight * 0.5);
     }
   } else if (params.thought_type === "consolidation" && params.source_ids.length > 0) {
-    const sources = await getThoughtsByIds(params.source_ids);
+    const sources = await getThoughtsByIds(params.source_ids, collection);
     if (sources.length > 0) {
       const avgWeight = sources.reduce((sum, s) => sum + ((s.pheromone_weight as number) ?? 1.0), 0) / sources.length;
       initialWeight = Math.max(1.0, avgWeight * 0.5);
@@ -809,9 +809,9 @@ export async function getExistingTags(): Promise<string[]> {
 
 // --- Thought Lookup Helpers ---
 
-export async function getThoughtById(thoughtId: string): Promise<Record<string, unknown> | null> {
+export async function getThoughtById(thoughtId: string, collection?: string): Promise<Record<string, unknown> | null> {
   try {
-    const points = await client.retrieve(COLLECTION, {
+    const points = await client.retrieve(collection || COLLECTION, {
       ids: [thoughtId],
       with_payload: true,
       with_vector: false,
@@ -823,10 +823,10 @@ export async function getThoughtById(thoughtId: string): Promise<Record<string, 
   }
 }
 
-async function getThoughtsByIds(thoughtIds: string[]): Promise<Record<string, unknown>[]> {
+async function getThoughtsByIds(thoughtIds: string[], collection?: string): Promise<Record<string, unknown>[]> {
   if (thoughtIds.length === 0) return [];
   try {
-    const points = await client.retrieve(COLLECTION, {
+    const points = await client.retrieve(collection || COLLECTION, {
       ids: thoughtIds,
       with_payload: true,
       with_vector: false,

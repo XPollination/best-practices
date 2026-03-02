@@ -10,7 +10,7 @@ allowed-tools: Bash, Read
 Maintain brain quality by analyzing, consolidating, and curating thoughts. Three depths, three scopes, optional dry-run.
 
 ```
-/xpo.claude.mindspace.garden [scope] [depth] [--dry-run]
+/xpo.claude.mindspace.garden [scope] [depth] [--space=private|shared] [--dry-run]
 ```
 
 ## Parameters
@@ -30,6 +30,15 @@ Maintain brain quality by analyzing, consolidating, and curating thoughts. Three
 | `shallow` | Count, categorize, flag noise, report — read-only analysis |
 | `micro` | + consolidation of duplicates + mark intermediates as archivable |
 | `deep` | + domain summaries + duplicate merging + highway curation + superseding stale thoughts |
+
+### Space (which collection to garden)
+
+| Value | Target Collection | Default |
+|-------|-------------------|---------|
+| `--space=private` | Caller's private collection (e.g. thought_space_thomas) | Yes (default when --space omitted) |
+| `--space=shared` | `thought_space_shared` — the shared brain accessible by all users | No |
+
+When `--space=shared` is specified, all gardener operations (discover, consolidate, refine, categorize) target thought_space_shared instead of the caller's private collection. All API calls include `"space": "shared"` in the request body.
 
 ### Dry-run
 
@@ -70,15 +79,18 @@ If `depth=shallow` or `depth=micro`: skip this step (no destructive operations).
 
 ### Step 1: Parse arguments
 
-Default: `scope=recent depth=shallow dry_run=false`
+Default: `scope=recent depth=shallow space=private dry_run=false`
 
 ```bash
 SCOPE="${1:-recent}"
 DEPTH="${2:-shallow}"
+SPACE="private"
 DRY_RUN=false
-# Check for --dry-run flag in any position
+# Check for flags in any position
 for arg in "$@"; do
   if [ "$arg" = "--dry-run" ]; then DRY_RUN=true; fi
+  if [ "$arg" = "--space=shared" ]; then SPACE="shared"; fi
+  if [ "$arg" = "--space=private" ]; then SPACE="private"; fi
 done
 ```
 
@@ -109,6 +121,10 @@ Query brain for recent activity across common domains:
 
 ```bash
 # Query recent thoughts with full content (read_only prevents query pollution)
+# When SPACE=shared, pass "space": "shared" to search thought_space_shared
+SPACE_JSON=""
+if [ "$SPACE" = "shared" ]; then SPACE_JSON=", \"space\": \"shared\""; fi
+
 curl -s -X POST "$BRAIN_URL" \
   -H "Content-Type: application/json" \
   -d "{
@@ -118,6 +134,7 @@ curl -s -X POST "$BRAIN_URL" \
     \"session_id\": \"$SESSION_ID\",
     \"full_content\": true,
     \"read_only\": true
+    $SPACE_JSON
   }"
 ```
 
@@ -217,6 +234,7 @@ If `dry_run=false`:
 
 ```bash
 # Consolidate duplicates into one coherent thought
+# Include "space": "shared" when gardening the shared collection
 curl -s -X POST "$BRAIN_URL" \
   -H "Content-Type: application/json" \
   -d "{
@@ -225,6 +243,7 @@ curl -s -X POST "$BRAIN_URL" \
     \"agent_name\": \"$AGENT_NAME\",
     \"session_id\": \"$SESSION_ID\",
     \"consolidates\": [\"<id1>\", \"<id2>\"]
+    $SPACE_JSON
   }"
 ```
 
@@ -239,6 +258,7 @@ curl -s -X POST "$BRAIN_URL" \
     \"agent_name\": \"$AGENT_NAME\",
     \"session_id\": \"$SESSION_ID\",
     \"refines\": \"<thought_id>\"
+    $SPACE_JSON
   }"
 ```
 
@@ -328,6 +348,16 @@ curl -s -X POST "$BRAIN_URL" \
 /xpo.claude.mindspace.garden full deep
 ```
 
+### Garden the shared brain
+```
+/xpo.claude.mindspace.garden recent shallow --space=shared
+```
+
+### Deep garden shared space (preview first)
+```
+/xpo.claude.mindspace.garden full deep --space=shared --dry-run
+```
+
 ---
 
 ## API Details
@@ -336,4 +366,5 @@ curl -s -X POST "$BRAIN_URL" \
 - **Full content:** Pass `"full_content": true` to read complete thought bodies
 - **Refine:** Pass `"refines": "<thought_id>"` to create refinement (supersedes original)
 - **Consolidate:** Pass `"consolidates": ["<id1>", "<id2>"]` to merge thoughts
+- **Space:** Pass `"space": "shared"` to target thought_space_shared (default is private collection)
 - **Drill down:** `GET http://localhost:3200/api/v1/memory/thought/<id>` for individual thought
