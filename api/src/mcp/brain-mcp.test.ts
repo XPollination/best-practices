@@ -14,6 +14,11 @@
  * AC-B8: drill_down_thought returns full thought by ID
  * AC-B9: drill_down_thought with invalid ID returns error
  * AC-B10: tools/list includes drill_down_thought (3 tools total)
+ *
+ * From PDSA mcp-query-read-only (2026-03-02):
+ * AC-B11: query_brain schema includes read_only boolean parameter
+ * AC-B12: query with read_only:true returns results but does not persist (thoughts_contributed: 0)
+ * AC-B13: query without read_only behaves as before (backward compatible)
  */
 import { describe, it, expect, beforeAll } from "vitest";
 
@@ -353,6 +358,65 @@ describe("AC-B10: tools/list includes drill_down_thought", () => {
     const drillTool = result.tools.find((t) => t.name === "drill_down_thought");
     expect(drillTool).toBeDefined();
     expect(drillTool!.inputSchema.required).toContain("thought_id");
+  });
+});
+
+// --- AC-B11: query_brain schema includes read_only parameter ---
+
+describe("AC-B11: query_brain schema includes read_only parameter", () => {
+  it("query_brain has read_only in its input schema", async () => {
+    if (!serverUp) return;
+    const data = await mcpRequest("tools/list", {});
+    const result = data.result as { tools: Array<{ name: string; inputSchema: Record<string, unknown> }> };
+    const queryTool = result.tools.find((t) => t.name === "query_brain");
+    expect(queryTool).toBeDefined();
+    const props = queryTool!.inputSchema.properties as Record<string, unknown>;
+    expect(props).toHaveProperty("read_only");
+  });
+
+  it("read_only is optional (not in required)", async () => {
+    if (!serverUp) return;
+    const data = await mcpRequest("tools/list", {});
+    const result = data.result as { tools: Array<{ name: string; inputSchema: Record<string, unknown> }> };
+    const queryTool = result.tools.find((t) => t.name === "query_brain");
+    expect(queryTool).toBeDefined();
+    const required = queryTool!.inputSchema.required as string[];
+    expect(required).not.toContain("read_only");
+  });
+});
+
+// --- AC-B12: query with read_only:true does not persist ---
+
+describe("AC-B12: query_brain with read_only:true does not persist", () => {
+  it("returns results but thoughts_contributed is 0", async () => {
+    if (!serverUp) return;
+    const data = await mcpRequest("tools/call", {
+      name: "query_brain",
+      arguments: { prompt: "workflow enforcement patterns", read_only: true },
+    });
+    const result = data.result as { content: Array<{ type: string; text: string }> };
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed).toHaveProperty("result");
+    expect(parsed).toHaveProperty("trace");
+    expect(parsed.result).toHaveProperty("sources");
+    expect(parsed.trace.thoughts_contributed).toBe(0);
+  });
+});
+
+// --- AC-B13: backward compatibility — omitting read_only works as before ---
+
+describe("AC-B13: backward compatibility without read_only", () => {
+  it("query without read_only still returns valid results", async () => {
+    if (!serverUp) return;
+    const data = await mcpRequest("tools/call", {
+      name: "query_brain",
+      arguments: { prompt: "agent coordination patterns" },
+    });
+    const result = data.result as { content: Array<{ type: string; text: string }> };
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed).toHaveProperty("result");
+    expect(parsed).toHaveProperty("trace");
+    expect(parsed.result).toHaveProperty("sources");
   });
 });
 
