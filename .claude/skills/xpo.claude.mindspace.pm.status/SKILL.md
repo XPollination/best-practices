@@ -34,7 +34,7 @@ node /home/developer/workspaces/github/PichlerThomas/xpollination-mcp-server/viz
 ```
 
 This returns JSON with:
-- `projects`: all tasks from best-practices, xpollination-mcp-server, and HomePage
+- `projects`: all tasks from xpollination-hive, xpollination-mcp-server, and HomePage
 - `brain_health`: status, recent thought count, highway count, top domains
 
 Parse and present. Brain health section is always included — no separate step needed.
@@ -129,7 +129,7 @@ After all actionable tasks are presented and decided:
 
 - **CLI:** `xpollination-mcp-server/src/db/interface-cli.js`
 - **Project DBs:**
-  - `best-practices/data/xpollination.db`
+  - `xpollination-hive/data/xpollination.db`
   - `xpollination-mcp-server/data/xpollination.db`
   - `HomePage/data/xpollination.db`
 - **Brain API:** `POST http://localhost:3200/api/v1/memory`

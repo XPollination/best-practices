@@ -1,6 +1,6 @@
 #!/bin/bash
 # Verification tests for qdrant-backup-nas-unresolvable fix
-# Run: bash best-practices/scripts/test-qdrant-backup.sh
+# Run: bash xpollination-hive/scripts/test-qdrant-backup.sh
 # All tests must pass before the fix is considered complete.
 
 set -e

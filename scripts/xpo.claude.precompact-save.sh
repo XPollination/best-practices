@@ -49,7 +49,7 @@ TASK_STATE=""
 for project_db in \
   "$BASE/xpollination-mcp-server/data/xpollination.db" \
   "$BASE/HomePage/data/xpollination.db" \
-  "$BASE/best-practices/data/xpollination.db"; do
+  "$BASE/xpollination-hive/data/xpollination.db"; do
 
   if [ -f "$project_db" ]; then
     result=$(python3 -c "

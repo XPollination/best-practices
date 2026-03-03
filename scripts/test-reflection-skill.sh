@@ -1,6 +1,6 @@
 #!/bin/bash
 # Verification tests for reflection-skill-research implementation
-# Run: bash best-practices/scripts/test-reflection-skill.sh
+# Run: bash xpollination-hive/scripts/test-reflection-skill.sh
 # All tests must pass before the implementation is considered complete.
 
 PASS=0
@@ -24,7 +24,7 @@ test_result() {
 }
 
 SKILL_DIR="$HOME/.claude/skills/xpo.claude.mindspace.reflect"
-SKILL_SRC="/home/developer/workspaces/github/PichlerThomas/best-practices/.claude/skills/xpo.claude.mindspace.reflect"
+SKILL_SRC="/home/developer/workspaces/github/PichlerThomas/xpollination-hive/.claude/skills/xpo.claude.mindspace.reflect"
 BRAIN_URL="http://localhost:3200/api/v1/memory"
 
 echo "=== Reflection Skill Verification Tests ==="

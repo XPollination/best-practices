@@ -68,7 +68,7 @@ If `depth=deep` (mutations will occur):
 
 1. Run the Qdrant backup script:
    ```bash
-   bash /home/developer/workspaces/github/PichlerThomas/best-practices/scripts/qdrant-backup.sh
+   bash /home/developer/workspaces/github/PichlerThomas/xpollination-hive/scripts/qdrant-backup.sh
    ```
 
 2. If the backup fails: **abort gardening immediately**. Do NOT proceed with mutations without a backup. Exit with error message.

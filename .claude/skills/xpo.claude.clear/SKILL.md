@@ -78,7 +78,7 @@ Only after verified storage, tell the user:
 Good snapshot:
 ```
 SESSION STATE 2026-03-01:
-- COMPLETED: keyword_echo bug fix (commit 646d13f, best-practices), brain API restarted with fix deployed
+- COMPLETED: keyword_echo bug fix (commit 646d13f, xpollination-hive), brain API restarted with fix deployed
 - PENDING: xpo.claude.clear skill (task #2, in progress)
 - KEY DECISIONS: keyword_echo downgraded from gate to flag, MCP is single entry point (no API bypass)
 - KEY INSIGHTS: MCP contribute_to_brain was silently rejecting due to keyword_echo + hardcoded agent_id "thomas" + hook auto-queries

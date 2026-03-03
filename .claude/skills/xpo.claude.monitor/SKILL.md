@@ -166,7 +166,7 @@ curl -s -X POST http://localhost:3200/api/v1/memory \
 **Project databases** (all under `/home/developer/workspaces/github/PichlerThomas/`):
 - xpollination-mcp-server: `xpollination-mcp-server/data/xpollination.db`
 - HomePage: `HomePage/data/xpollination.db`
-- best-practices: `best-practices/data/xpollination.db`
+- xpollination-hive: `xpollination-hive/data/xpollination.db`
 
 ---
 
@@ -309,7 +309,7 @@ When Claude's context window fills up, auto-compact triggers. This is handled **
 - Brain API at `localhost:3200`
 - Hook configured in `~/.claude/settings.json`
 
-**Script:** `best-practices/scripts/xpo.claude.compact-recover.sh`
+**Script:** `xpollination-hive/scripts/xpo.claude.compact-recover.sh`
 **Hook config:** `~/.claude/settings.json` → `SessionStart` → matcher: `compact`
 
 ## Installation (new machine)
@@ -317,15 +317,15 @@ When Claude's context window fills up, auto-compact triggers. This is handled **
 ```bash
 # Install all skills (symlinks — auto-update on git pull)
 for skill in xpo.claude.monitor xpo.claude.unblock xpo.claude.mindspace.brain xpo.claude.mindspace.pm.status; do
-  ln -sfn /home/developer/workspaces/github/PichlerThomas/best-practices/.claude/skills/$skill ~/.claude/skills/$skill
+  ln -sfn /home/developer/workspaces/github/PichlerThomas/xpollination-hive/.claude/skills/$skill ~/.claude/skills/$skill
 done
 
 # Backward compat symlink for brain skill (allows /brain invocation)
 ln -sfn xpo.claude.mindspace.brain ~/.claude/skills/brain
 
 # Merge hook config (preserves local settings, adds missing hooks)
-node best-practices/scripts/xpo.claude.sync-settings.js \
-  best-practices/scripts/xpo.claude.settings.json \
+node xpollination-hive/scripts/xpo.claude.sync-settings.js \
+  xpollination-hive/scripts/xpo.claude.settings.json \
   ~/.claude/settings.json
 ```
 

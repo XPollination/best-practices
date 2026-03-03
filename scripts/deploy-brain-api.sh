@@ -10,7 +10,7 @@
 
 set -uo pipefail
 
-API_DIR="/home/developer/workspaces/github/PichlerThomas/best-practices"
+API_DIR="/home/developer/workspaces/github/PichlerThomas/xpollination-hive"
 LOG_FILE="/tmp/brain-api.log"
 HEALTH_URL="http://localhost:3200/api/v1/health"
 

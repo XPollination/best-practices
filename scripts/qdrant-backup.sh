@@ -62,7 +62,7 @@ Thoughts: $POINT_COUNT
    (Note: scp fails on Synology — use cat over SSH)
 
 2. Stop brain API:
-   cd best-practices/api && docker compose down
+   cd xpollination-hive/api && docker compose down
 
 3. Upload snapshot to Qdrant:
    docker compose up -d qdrant
